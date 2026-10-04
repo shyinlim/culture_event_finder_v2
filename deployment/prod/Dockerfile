@@ -20,7 +20,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:$PATH" \
-    PORT=8080
+    PORT=8791
 
 COPY pyproject.toml uv.lock .python-version ./
 
@@ -32,6 +32,6 @@ COPY backend /app/backend
 RUN SECRET_KEY=build-only-not-used ALLOWED_HOSTS=build-only \
     python backend/manage.py collectstatic --noinput
 
-EXPOSE 8080
+EXPOSE 8791
 
-CMD exec gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --worker-class gthread --timeout 60
+CMD exec gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:${PORT:-8791} --workers 1 --threads 8 --worker-class gthread --timeout 60

@@ -521,7 +521,7 @@ RUN SECRET_KEY=build-only-not-used ALLOWED_HOSTS=build-only \
 
 CMD shell 形式：
 ```dockerfile
-CMD exec gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --worker-class gthread --timeout 60
+CMD exec gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:${PORT:-8791} --workers 1 --threads 8 --worker-class gthread --timeout 60
 ```
 
 ### 6.2 CI/CD
@@ -583,7 +583,7 @@ Phase 7：k8s（另開 branch，學習用）
 | `SECRET_KEY` | prod：Render dashboard；build：collectstatic 假值；test：makefile 與 CI | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
 | `ALLOWED_HOSTS` | prod：Render dashboard；build 與 test 同上 | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
 | `DEBUG` | dev：`deployment/dev/docker-compose.yml` | Django | 預設走 prod 分支 |
-| `PORT` | 平台注入或預設 8080；dev backend 8789 / frontend 8790 | gunicorn / Vite | 不會沒設 |
+| `PORT` | 平台注入或預設 8791；dev backend 8789 / frontend 8790 | gunicorn / Vite | 不會沒設 |
 | `UV_PROJECT_ENVIRONMENT` | `deployment/dev/backend.Dockerfile` | uv | venv 落在 bind mount 內被 host 覆蓋 |
 | `HOST_UID` / `HOST_GID` | dev：Makefile 帶入 | container non-root user | Linux host 權限問題 |
 
