@@ -1,4 +1,4 @@
-.PHONY: dev dev-reset test test-backend test-frontend build-prod run-prod prune
+.PHONY: dev dev-reset install-host test test-backend test-frontend build-prod run-prod prune
 
 # All compose commands use this variable because docker-compose.yml is not in root.
 # HOST_UID/HOST_GID map host permissions for bind mounts.
@@ -17,11 +17,15 @@ dev-reset:
 	docker image prune -f
 	$(COMPOSE) up
 
+# Install node_modules on host for editor TS server, ESLint, and import resolution.
+install-host:
+	cd frontend && npm ci
+
 test-backend:
 	cd backend && DEBUG=True uv run pytest .
 
 test-frontend:
-	@echo "Frontend test target - will be wired in Task 4"
+	cd frontend && npm test
 
 test: test-backend test-frontend
 

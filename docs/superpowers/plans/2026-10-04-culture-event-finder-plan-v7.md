@@ -606,7 +606,7 @@ git commit -m "feat(dev): add backend dev container under deployment/dev and Mak
   - named volume `frontend_node_modules`（實際名稱 `culture_event_finder_v2_frontend_node_modules`）
   - `make test` 同時跑前後端單元測試；Vitest 的 DOM 環境是 `happy-dom`
 
-- [ ] **Step 1: 建立 `frontend/` 的設定檔與原始碼**
+- [x] **Step 1: 建立 `frontend/` 的設定檔與原始碼**
 
 建立 `frontend/package.json`：
 ```json
@@ -766,7 +766,7 @@ describe('Frontend Scaffold Smoke Test', () => {
 });
 ```
 
-- [ ] **Step 2: host 安裝依賴，產生 `package-lock.json` 並跑測試**
+- [x] **Step 2: host 安裝依賴，產生 `package-lock.json` 並跑測試**
 
 ```bash
 cd frontend && npm install && npm test && npm run build && cd ..
@@ -776,7 +776,7 @@ ls frontend/package-lock.json
 Expected: `npm test` 1 個測試 PASS、`npm run build` 產出 `frontend/dist/`、`package-lock.json` 存在。
 這一步產生的 `package-lock.json` 是下一步 Dockerfile `npm ci` 的前提，要一起 commit。
 
-- [ ] **Step 3: 建立 `deployment/dev/frontend.Dockerfile`**
+- [x] **Step 3: 建立 `deployment/dev/frontend.Dockerfile`**
 
 ```dockerfile
 FROM node:22-slim
@@ -798,7 +798,7 @@ EXPOSE 8790
 CMD ["npm", "run", "dev"]
 ```
 
-- [ ] **Step 4: 更新 `deployment/dev/docker-compose.yml`（完整內容）**
+- [x] **Step 4: 更新 `deployment/dev/docker-compose.yml`（完整內容）**
 
 ```yaml
 # 沒寫 name 的話 project name 會是目錄名 "dev"，容易跟其他專案撞名
@@ -841,7 +841,7 @@ volumes:
   frontend_node_modules:
 ```
 
-- [ ] **Step 5: 更新 `Makefile`（完整內容）**
+- [x] **Step 5: 更新 `Makefile`（完整內容）**
 
 ```makefile
 .PHONY: dev dev-reset install-host test test-backend test-frontend build-prod run-prod prune

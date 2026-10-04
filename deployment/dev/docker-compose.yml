@@ -16,3 +16,23 @@ services:
       - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,backend
     ports:
       - "8789:8789"
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: deployment/dev/frontend.Dockerfile
+    volumes:
+      - ../../frontend:/app/frontend
+      # Named volume prevents host node_modules from overwriting container node_modules.
+      - frontend_node_modules:/app/frontend/node_modules
+    environment:
+      # File change events can be unreliable in Docker on macOS/Windows, so polling is enabled.
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
+    ports:
+      - "8790:8790"
+    depends_on:
+      - backend
+
+volumes:
+  frontend_node_modules:
