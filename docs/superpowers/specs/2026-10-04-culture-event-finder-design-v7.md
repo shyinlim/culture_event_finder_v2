@@ -77,7 +77,7 @@ culture_event_finder_v2/
 │       ├── Dockerfile           # prod multi-stage
 │       └── Dockerfile.dockerignore
 ├── docs/poc/                    # POC HTML 迭代紀錄（design reference，唯讀）
-├── makefile                     # 指令入口，留 root（不是部署設定）
+├── Makefile                     # 指令入口，留 root（不是部署設定）
 └── pyproject.toml / uv.lock     # Python 依賴，留 root
 ```
 
@@ -513,8 +513,14 @@ POC 保留在 `docs/poc/` 作 design reference，不是丟棄式產物。
 - **non-root user 加 bind mount 在 Linux host 上會壞。** build 時的 `chown`
   被 runtime 的 mount 蓋掉，檔案樹仍屬於 host 的 UID，container 內的 `appuser`
   連 `__pycache__` 都寫不了。macOS 的 Docker Desktop 會假裝 ownership 所以本機測不出來。
-  compose 的 backend service 要加 `user: "${UID:-1000}:${GID:-1000}"`。
+  compose 的 backend service 要加 `user: "${HOST_UID:-1000}:${HOST_GID:-1000}"`，
+  由 Makefile 在每個 compose 指令前帶入 `HOST_UID=$$(id -u) HOST_GID=$$(id -g)`。
   這一條直接關係到本節「任何人 clone 下來跑 `make dev` 就有一致環境」這個目的。
+- **變數名不可以用 `UID` / `GID`。** `UID` 在 sh、bash、zsh 都是 shell 變數，
+  沒有 export 給子程序，compose 讀不到，永遠落到預設值 1000。
+  而且 macOS 的 `/bin/sh`（make 預設用的 shell）把 `UID` 設成唯讀，
+  `UID=$$(id -u) docker compose ...` 會直接報 `UID: readonly variable`。
+  實測過，換成 `HOST_UID` 兩個問題都沒有。
 
 **已知取捨**：proxy 指向 Docker DNS 名稱 `backend:8789`，所以只能走 `make dev`，
 不能在 host 上單獨 `npm run dev`（那樣 `/api` 代理不到）。
@@ -1043,7 +1049,7 @@ README 要有這張表。半年後要重建環境或輪替 key 時，這是唯�
 | `DEBUG` | dev：`deployment/dev/docker-compose.yml` | Django | 預設走 prod 分支 |
 | `PORT` | prod：Render 自動注入 10000；Cloud Run 自動注入 8080；本機 `make run-prod` 靠 `deployment/prod/Dockerfile` 的 `ENV PORT=8080`。dev：backend 固定 8789、frontend 固定 8790，寫在 `deployment/dev/` 的 compose 與兩個 Dockerfile | gunicorn / runserver / Vite | 不會沒設 |
 | `UV_PROJECT_ENVIRONMENT` | `deployment/dev/backend.Dockerfile` | uv | venv 落在 bind mount 內被 host 覆蓋 |
-| `UID` / `GID` | dev：host shell（compose 讀，有預設值 1000） | dev container 的 non-root user | Linux host 上 container 寫不了 bind mount |
+| `HOST_UID` / `HOST_GID` | dev：Makefile 用 `id -u` / `id -g` 帶入（compose 讀，有預設值 1000） | dev container 的 non-root user | Linux host 上 UID 不是 1000 時 container 寫不了 bind mount |
 
 `DJANGO_ENV` 不存在，不要照著找。
 

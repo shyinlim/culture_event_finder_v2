@@ -5,8 +5,10 @@ __pycache__/
 *.py[codz]
 *$py.class
  .idea/
+ .idea
 .DS_store
 .venv
+
 
 # C extensions
 *.so
