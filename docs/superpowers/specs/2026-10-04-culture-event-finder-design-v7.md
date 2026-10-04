@@ -1,5 +1,7 @@
 # Culture Event Finder：React + Django API 重構設計 v7
 
+> ⛔ **SUPERSEDED**：已由 `2026-10-04-culture-event-finder-design-v8.md` 取代（活動卡片依 title && location 聚合與多場次 Modal）。
+
 - 日期：2026-10-04
 - 狀態：owner 於 2026-10-02 批准方向並通過 Review-Crew 審查（定案 3 項決策：保留 Provider ABC 擴充骨架、前端 20 項需求全做、v1/v2 彼此獨立不侵入修改 v1）；2026-10-04 owner 定案部署檔案集中於 `deployment/`、dev port 改為 backend 8789 / frontend 8790
 - 取代：`2026-10-02-culture-event-finder-design-v6.md`（v6 標記 SUPERSEDED）
@@ -128,10 +130,12 @@ GET /api/v1/countries
       categories 的第一個是前端的預設類別。
 
 GET /api/v1/{country}/events?category=6&location=臺北&month=2026-07
-    → { "events": [ { "id", "title", "startTime", "endTime", "location",
-                      "locationName", "onSales", "price" } ],
+    → { "events": [ { "id", "title", "location", "locationName", "onSales", "price",
+                      "shows": [ { "startTime", "endTime" }, ... ] } ],
         "meta": { "rawCount", "matchedCount", "cacheAge" } }
-      id 是 "<MoC UID>-<第幾場>"；onSales 是 boolean（MoC 的 "Y" 才是 true）；
+      id 是代表活動的唯一 id；shows 為依 (title, location) 聚合的時段列表，按時間升序排列；
+      onSales 為 boolean（任一場次 onSales 為 true 即為 true）；
+      price 為票價字串（若有相異票價以首筆或統整顯示）；
       cacheAge 是秒數，這次是 cache miss 時為 null。
       Google Map 與 Google 搜尋連結由前端組（要 encodeURIComponent），不放在合約裡。
 

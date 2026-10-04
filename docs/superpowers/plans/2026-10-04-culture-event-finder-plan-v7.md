@@ -1,12 +1,13 @@
 # Culture Event Finder Refactor：Implementation Plan v7
 
+> ⛔ **SUPERSEDED**：由 `2026-10-04-culture-event-finder-plan-v8.md` 取代（活動卡片依 (title, location) 聚合為 Task 12，後續部署任務順延為 Task 13 ~ Task 17）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Spec:** `docs/superpowers/specs/2026-10-04-culture-event-finder-design-v7.md`
 
 > ⚠️ **本文件自足。執行時不需開啟舊 plan 或舊 spec。**
-> `2026-10-02-...-plan-v6.md`、`2026-08-23-...-plan-v5.md`、`2026-08-22-...-plan-v4.md`、`2026-07-19-...-plan-v3.md`、
-> `2026-07-18-...-plan-v2.md`、`2026-07-11-culture-event-finder-refactor.md`
+> `2026-10-04-...-plan-v7.md`、`2026-10-02-...-plan-v6.md`、`2026-08-23-...-plan-v5.md`、`2026-08-22-...-plan-v4.md`
 > 全部標記 SUPERSEDED。本 repo 為全新 repo（`culture_event_finder_v2`），不包含舊 repo 的 git 歷史與 legacy 程式碼。
 
 **Goal:** 把 Taiwan culture-event 的 Django/Jinja2 網站重構成 React (Vite + TS + Tailwind) SPA + Django JSON API，以單一 container 部署到 Render free web service，具備可擴展之 provider 架構（保留 Provider ABC，先實作台灣）、cache-aside 與 zh/en UI i18n。
