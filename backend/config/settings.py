@@ -18,7 +18,7 @@ else:
 
 # 3. ALLOWED_HOSTS fail-fast guard
 if DEBUG:
-    allowed_hosts_env = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,backend")
+    allowed_hosts_env = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0,backend")
     ALLOWED_HOSTS = [h.strip() for h in allowed_hosts_env.split(",") if h.strip()]
 else:
     if not os.environ.get("ALLOWED_HOSTS") or not os.environ["ALLOWED_HOSTS"].strip():
