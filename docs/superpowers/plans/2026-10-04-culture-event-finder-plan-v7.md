@@ -889,7 +889,7 @@ prune:
 	docker image prune -f
 ```
 
-- [ ] **Step 6: `make test` 全測 ★ checkpoint**
+- [x] **Step 6: `make test` 全測 ★ checkpoint**
 
 ```bash
 make test
@@ -897,7 +897,7 @@ make test
 
 Expected: 後端 pytest 與前端 vitest 都 PASS。
 
-- [ ] **Step 7: 起兩個 container，瀏覽器看畫面 ★ checkpoint**
+- [x] **Step 7: 起兩個 container，瀏覽器看畫面 ★ checkpoint**
 
 終端機 A：
 
@@ -920,7 +920,7 @@ Expected:
 改 `frontend/src/App.tsx` 的標題文字存檔，1 到 2 秒內瀏覽器自動更新（HMR 有效）。
 改回原文字後，回到終端機 A 按 Ctrl+C 停掉。
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add frontend/ deployment/dev/frontend.Dockerfile deployment/dev/docker-compose.yml Makefile
