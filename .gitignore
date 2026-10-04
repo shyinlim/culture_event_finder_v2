@@ -1,7 +1,12 @@
+.env
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
+ .idea/
+.DS_store
+.venv
 
 # C extensions
 *.so
@@ -216,3 +221,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Culture Event Finder v2 specific
+staticfiles/
+frontend/dist/
+frontend/node_modules/
