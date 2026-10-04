@@ -8,6 +8,11 @@ COMPOSE = HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f deployment/dev
 dev:
 	$(COMPOSE) build
 	docker image prune -f
+	@echo ""
+	@echo "Services ready:"
+	@echo "  Frontend: http://localhost:8790  (or http://0.0.0.0:8790)"
+	@echo "  Backend:  http://localhost:8789  (or http://0.0.0.0:8789)"
+	@echo ""
 	$(COMPOSE) up
 
 # Run after adding dependencies to rebuild and reset named volumes.
@@ -15,6 +20,11 @@ dev-reset:
 	$(COMPOSE) down -v
 	$(COMPOSE) build
 	docker image prune -f
+	@echo ""
+	@echo "Services ready:"
+	@echo "  Frontend: http://localhost:8790  (or http://0.0.0.0:8790)"
+	@echo "  Backend:  http://localhost:8789  (or http://0.0.0.0:8789)"
+	@echo ""
 	$(COMPOSE) up
 
 # Install node_modules on host for editor TS server, ESLint, and import resolution.
