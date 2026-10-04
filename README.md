@@ -8,6 +8,8 @@ Culture Event Finder v2 is a modern culture event search platform for Taiwan.
 It uses Django 5 on the backend and React with Vite on the frontend.
 A multi-stage Dockerfile packages both into one container for easy deployment.
 
+![frontend.png](readme/frontend.png)
+
 ---
 
 ## Key Features
