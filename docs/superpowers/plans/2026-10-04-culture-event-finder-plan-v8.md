@@ -115,23 +115,23 @@
   ```
 - Frontend: 卡片主體時間行格式統一（`formatEventDateRange`），多場次卡片提供場次數量按鈕，點擊彈出毛玻璃 Modal 依日期分組檢視完整時段。
 
-- [ ] **Step 1: 後端契約與聚合邏輯**
+- [x] **Step 1: 後端契約與聚合邏輯**
   - 在 `services.py` 的 `search_events` 流程中，過濾月份命中後，依 `(title, location)` 將場次聚合。
   - 主活動的 `startTime` 取首場開始時間，`endTime` 取末場結束時間（或末場開始時間）。
   - `onSales` 為任一場次為 `True` 即為 `True`；`price` 取首筆非空票價。
   - `views.py` 的 `_event_to_json` 將聚合後的 `shows` 陣列序列化輸出。
   - 補足單元測試 `test_services.py` 與 `test_views.py`。
 
-- [ ] **Step 2: 前端型別與 EventCard / ShowTimesModal 元件**
+- [x] **Step 2: 前端型別與 EventCard / ShowTimesModal 元件**
   - `types.ts` 中的 `EventItem` 新增 `shows: { startTime: string; endTime: string | null }[]`。
   - 建立 `ShowTimesModal.tsx`：支援 ESC 鍵關閉、點擊遮罩關閉、日期分組、毛玻璃背景。
   - 修改 `EventCard.tsx`：日曆排版與 POC v28 一致；若 `shows.length > 1` 顯示 `N 場次 ▾` 按鈕，點擊喚出 Modal。
 
-- [ ] **Step 3: 雙端測試與驗證 ★ checkpoint**
+- [x] **Step 3: 雙端測試與驗證 ★ checkpoint**
   - 執行 `make test-backend` 與 `make test-frontend`，確保全數 PASS。
   - 啟動 dev container，打真實 MoC API（`category=1&location=臺北&month=2026-10`），確認王羽佳 85 場聚合成單張卡片，點擊場次按鈕彈出 Modal 檢視時段，且單場次活動正常排版。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/ frontend/

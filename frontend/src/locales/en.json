@@ -29,5 +29,9 @@
   "google_search": "Google search",
   "about_title": "About Culture Event Finder",
   "about_desc": "An event finder built on Taiwan Ministry of Culture open data. The country provider design leaves room for other countries' data sources.",
-  "about_author": "Author"
+  "about_author": "Author",
+  "total_shows": "Total {{count}} shows",
+  "show_count_badge": "{{count}} shows ▾",
+  "modal_booking_hint": "Please select a showtime when booking",
+  "modal_close": "Close"
 }

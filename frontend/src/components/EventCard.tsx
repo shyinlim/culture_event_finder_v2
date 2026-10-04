@@ -19,7 +19,15 @@ const BANNERS = [
   },
 ];
 
-export function EventCard({ event, index }: { event: EventItem; index: number }) {
+export function EventCard({
+  event,
+  index,
+  onOpenShowtimes,
+}: {
+  event: EventItem;
+  index: number;
+  onOpenShowtimes?: (event: EventItem) => void;
+}) {
   const { lang, t } = useI18n();
   const banner = BANNERS[index % BANNERS.length];
 
@@ -40,9 +48,21 @@ export function EventCard({ event, index }: { event: EventItem; index: number })
         <h3 className="font-bold text-lg leading-snug mb-3 text-[var(--text)] group-hover:text-[var(--link)] transition-colors">
           {event.title}
         </h3>
-        <p className="text-sm text-[var(--text-muted)] mb-2 flex items-center gap-2">
-          <Icon name="calendar" size={16} />{formatDateRange(event.startTime, event.endTime)}
-        </p>
+        <div className="flex items-center justify-between text-sm text-[var(--text-muted)] mb-3 min-h-[28px]">
+          <span className="flex items-center gap-2">
+            <Icon name="calendar" size={16} />
+            <span>{formatDateRange(event.startTime, event.endTime)}</span>
+          </span>
+          {event.shows && event.shows.length > 1 && onOpenShowtimes && (
+            <button
+              type="button"
+              onClick={() => onOpenShowtimes(event)}
+              className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--surface-2)] border border-[var(--panel-border-dim)] text-[var(--text)] hover:text-white hover:border-[var(--accent)] transition cursor-pointer"
+            >
+              {t('show_count_badge', { count: event.shows.length })}
+            </button>
+          )}
+        </div>
         <a
           href={buildGoogleMapUrl(event.location, event.locationName)}
           target="_blank"

@@ -29,5 +29,9 @@
   "google_search": "Google 搜尋",
   "about_title": "關於 Culture Event Finder",
   "about_desc": "整合台灣文化部公開資料的活動搜尋工具。以 country provider 架構設計，未來可擴充其他國家的公開資料源。",
-  "about_author": "作者"
+  "about_author": "作者",
+  "total_shows": "共 {{count}} 場次",
+  "show_count_badge": "{{count}} 場次 ▾",
+  "modal_booking_hint": "購票時請依場次預約",
+  "modal_close": "關閉"
 }

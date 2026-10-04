@@ -71,6 +71,7 @@ class EventApiTests(SimpleTestCase):
                 "locationName": "國家音樂廳",
                 "onSales": True,
                 "price": "800",
+                "shows": [{"startTime": "2026/07/12 19:30:00", "endTime": None}],
             },
         )
 

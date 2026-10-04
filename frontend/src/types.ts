@@ -1,5 +1,10 @@
 // Mirrors backend /api/v1 contracts 1:1.
 
+export interface EventShow {
+  startTime: string; // "2026/07/12 19:30:00"
+  endTime: string | null;
+}
+
 export interface EventItem {
   id: string;
   title: string;
@@ -9,6 +14,7 @@ export interface EventItem {
   locationName: string; // Venue name
   onSales: boolean;
   price: string; // Free text: "500", "0", or inquiry text
+  shows: EventShow[];
 }
 
 export interface LabeledOption {

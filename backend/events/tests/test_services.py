@@ -71,11 +71,76 @@ class SearchEventsTests(SimpleTestCase):
         first = search_events(TW, "6", "台北", "2026-07")
         self.assertEqual([e.title for e in first["events"]], ["台北場"])
         self.assertEqual(first["meta"], {"rawCount": 3, "matchedCount": 1, "cacheAge": None})
+        self.assertEqual(
+            first["events"][0].shows,
+            [{"startTime": "2026/07/12 19:30:00", "endTime": None}],
+        )
 
         # Second query uses cache and avoids upstream HTTP calls.
         second = search_events(TW, "6", "臺北", "2026-07")
         self.assertEqual(len(responses.calls), 1)
         self.assertIsNotNone(second["meta"]["cacheAge"])
+
+    @responses.activate
+    def test_multi_show_events_grouped_by_title_and_location(self):
+        responses.add(
+            responses.GET,
+            MOC_API_URL,
+            json=[
+                {
+                    "UID": "w1",
+                    "title": "王羽佳",
+                    "showInfo": [
+                        {
+                            "time": "2026/10/10 11:00:00",
+                            "endTime": "2026/10/10 12:00:00",
+                            "location": "臺北市中正區",
+                            "locationName": "國家兩廳院",
+                            "onSales": "N",
+                            "price": "",
+                        },
+                        {
+                            "time": "2026/10/10 14:00:00",
+                            "endTime": "2026/10/10 15:00:00",
+                            "location": "臺北市中正區",
+                            "locationName": "國家兩廳院",
+                            "onSales": "Y",
+                            "price": "500",
+                        },
+                    ],
+                },
+                {
+                    "UID": "w2",
+                    "title": "王羽佳",
+                    "showInfo": [
+                        {
+                            "time": "2026/10/20 19:00:00",
+                            "endTime": "2026/10/20 21:00:00",
+                            "location": "高雄市鳳山區",
+                            "locationName": "衛武營",
+                            "onSales": "Y",
+                            "price": "600",
+                        }
+                    ],
+                },
+            ],
+        )
+        res = search_events(TW, "1", "臺北", "2026-10")
+        self.assertEqual(len(res["events"]), 1)
+        event = res["events"][0]
+        self.assertEqual(event.title, "王羽佳")
+        self.assertEqual(event.location, "臺北市中正區")
+        self.assertEqual(event.start_time, "2026/10/10 11:00:00")
+        self.assertEqual(event.end_time, "2026/10/10 15:00:00")
+        self.assertTrue(event.on_sales)
+        self.assertEqual(event.price, "500")
+        self.assertEqual(
+            event.shows,
+            [
+                {"startTime": "2026/10/10 11:00:00", "endTime": "2026/10/10 12:00:00"},
+                {"startTime": "2026/10/10 14:00:00", "endTime": "2026/10/10 15:00:00"},
+            ],
+        )
 
     @responses.activate
     def test_upstream_failure_is_cached_for_60_seconds(self):

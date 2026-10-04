@@ -8,6 +8,7 @@ import { Icon } from './components/Icon';
 import { LanguageSwitch } from './components/LanguageSwitch';
 import { Scene } from './components/Scene';
 import { SearchForm } from './components/SearchForm';
+import { ShowTimesModal } from './components/ShowTimesModal';
 import { EmptyState, ErrorMessage, IdleState, LoadingSkeleton } from './components/StatePanels';
 import { I18nProvider, useI18n } from './i18n';
 import { useTheme } from './theme';
@@ -29,6 +30,7 @@ function MainApp() {
   const [searchError, setSearchError] = useState<ErrorKind>('transient');
   const [events, setEvents] = useState<EventItem[]>([]);
   const [searched, setSearched] = useState<Form | null>(null);
+  const [modalEvent, setModalEvent] = useState<EventItem | null>(null);
   const searchCtrl = useRef<AbortController | null>(null);
 
   const country = countries.find((c) => c.code === form?.country);
@@ -195,13 +197,14 @@ function MainApp() {
                 {status === 'results' && (
                   <>
                     <p className="text-sm text-[var(--text-muted)] mb-4">{summary}</p>
-                    <EventList events={events} />
+                    <EventList events={events} onOpenShowtimes={(ev) => setModalEvent(ev)} />
                   </>
                 )}
               </>
             )}
           </main>
         )}
+        <ShowTimesModal event={modalEvent} onClose={() => setModalEvent(null)} />
       </div>
     </div>
   );

@@ -10,7 +10,10 @@ def _error(status: int, code: str, message: str) -> JsonResponse:
     return JsonResponse({"error": {"code": code, "message": message}}, status=status)
 
 
-def _event_to_json(event: Event) -> dict:
+def _event_to_json(event) -> dict:
+    shows = getattr(event, "shows", None)
+    if not shows:
+        shows = [{"startTime": event.start_time, "endTime": event.end_time}]
     return {
         "id": event.id,
         "title": event.title,
@@ -20,6 +23,7 @@ def _event_to_json(event: Event) -> dict:
         "locationName": event.location_name,
         "onSales": event.on_sales,
         "price": event.price,
+        "shows": shows,
     }
 
 
