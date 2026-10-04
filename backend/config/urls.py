@@ -19,4 +19,5 @@ urlpatterns = [
     path("", root_view, name="root"),
     path("health", include("health.urls")),
     path("health/", include("health.urls")),
+    path("api/v1/", include("events.urls")),
 ]

@@ -1038,12 +1038,20 @@ owner 的開發時間是零碎的，每個 task 結束時必須有一個當下�
   **這條目前沒有實質緩解**，只有 fallback 方案：提高 `--panel` 不透明度並移除 blur
   （CSS variables 一處改）。design.css 要預留註解好的低配值，臨時要降級不用重想。
   部署驗證要包含一次真實手機的捲動與 hover 順暢度確認。
-- **單 category 的資料量未量測**：整個設計建立在「一次抓完某 category 的全部活動
-  塞進 LocMemCache」，但沒有實測過單次回應的筆數與大小，Render free 只有 512 MB RAM
-  要裝 12 個 category 加上 Django 本身。
-  (推論：撐爆的話會是 OOM kill + 間歇性 502 且無告警)
-  緩解：後端 checkpoint 打真實 MoC 時順手量 `wc -c` 與筆數寫回本節；
-  若單 category 超過幾 MB，LocMemCache 加 `OPTIONS: {"MAX_ENTRIES": 20}` 一行就夠。
+- **單 category 的資料量量測結果（2026-10-04 實測）**：
+  - category=6（展覽）：495,945 bytes（約 484 KB），302 events，302 shows
+  - category=1（音樂）：481,024 bytes（約 470 KB），500 events，741 shows
+  - category=2（戲劇）：513,039 bytes（約 501 KB），241 events，1,516 shows
+  - category=3（舞蹈）：87,137 bytes（約 85 KB），70 events，194 shows
+  - category=4（親子）：106,635 bytes（約 104 KB），58 events，233 shows
+  - category=5（獨立音樂）：115,685 bytes（約 113 KB），6 events，456 shows
+  - category=7（講座/研習）：183,949 bytes（約 180 KB），146 events，164 shows
+  - category=8（電影）：1,380,816 bytes（約 1.3 MB），246 events，4,855 shows
+  - category=11（綜藝）：1,476 bytes（約 1.4 KB），1 events，1 shows
+  - category=17（演唱會）：13,160 bytes（約 13 KB），11 events，15 shows
+  - category=19（競賽）：11,841 bytes（約 12 KB），9 events，9 shows
+  - category=200（其他）：18,109 bytes（約 18 KB），9 events，9 shows
+  - **總結**：單一 category 最大僅約 1.3 MB（電影），12 個類別總和約 3.4 MB，在 Render 512 MB 記憶體限制下極為充裕，目前無需調整 LocMemCache 的 `MAX_ENTRIES`。
 - **加國家不是三步**：README 不可以承諾「新增一個 provider 檔就好」。
   已知至少四處要動：前端 `COMING_SOON` 硬編陣列要清（不清的話新國家會同時出現
   一個 active chip 和一個未開放 chip）、`location` 的 substring 比對綁死中文地址習慣、

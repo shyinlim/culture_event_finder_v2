@@ -2,6 +2,9 @@ import os
 import re
 from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
+from toolkitsy.logger import configure
+
+configure()  # toolkitsy logger: console only
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -31,6 +34,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "events.middleware.CorrelationIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.common.CommonMiddleware",
