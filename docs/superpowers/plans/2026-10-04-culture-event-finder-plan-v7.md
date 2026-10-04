@@ -501,12 +501,16 @@ services:
 COMPOSE = HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f deployment/dev/docker-compose.yml
 
 dev:
-	$(COMPOSE) up --build
+	$(COMPOSE) build
+	docker image prune -f
+	$(COMPOSE) up
 
 # 裝了新套件後跑這個：named volume 只在第一次建立時複製 image 內容，之後不會自己更新
 dev-reset:
 	$(COMPOSE) down -v
-	$(COMPOSE) up --build
+	$(COMPOSE) build
+	docker image prune -f
+	$(COMPOSE) up
 
 test-backend:
 	cd backend && DEBUG=True uv run pytest .
@@ -539,7 +543,10 @@ HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f deployment/dev/docker-comp
 ```
 
 Expected:
-- `make -n dev` 印出 `HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f deployment/dev/docker-compose.yml up --build`
+- `make -n dev` 依序印出三行：
+  - `HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f deployment/dev/docker-compose.yml build`
+  - `docker image prune -f`
+  - `HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f deployment/dev/docker-compose.yml up`
 - `name: culture_event_finder_v2`
 - `context:` 與 bind mount 的 `source:` 都是 repo root 的絕對路徑，不是 `.../deployment/dev`
 - `dockerfile: deployment/dev/backend.Dockerfile`、`published: "8789"`、`user:` 是你的 `id -u`:`id -g`
@@ -845,12 +852,16 @@ volumes:
 COMPOSE = HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f deployment/dev/docker-compose.yml
 
 dev:
-	$(COMPOSE) up --build
+	$(COMPOSE) build
+	docker image prune -f
+	$(COMPOSE) up
 
 # 裝了新套件後跑這個：named volume 只在第一次建立時複製 image 內容，之後不會自己更新
 dev-reset:
 	$(COMPOSE) down -v
-	$(COMPOSE) up --build
+	$(COMPOSE) build
+	docker image prune -f
+	$(COMPOSE) up
 
 # node_modules 要裝兩份：container 那份 (named volume) 負責執行，
 # host 這份只給編輯器的 TS server / eslint / import 跳轉讀。兩份吃同一個 package-lock.json。

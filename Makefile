@@ -6,12 +6,16 @@
 COMPOSE = HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f deployment/dev/docker-compose.yml
 
 dev:
-	$(COMPOSE) up --build
+	$(COMPOSE) build
+	docker image prune -f
+	$(COMPOSE) up
 
 # Run after adding dependencies to rebuild and reset named volumes.
 dev-reset:
 	$(COMPOSE) down -v
-	$(COMPOSE) up --build
+	$(COMPOSE) build
+	docker image prune -f
+	$(COMPOSE) up
 
 test-backend:
 	cd backend && DEBUG=True uv run pytest .
