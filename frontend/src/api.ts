@@ -23,7 +23,12 @@ export function errorKind(err: unknown): ErrorKind {
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, { signal });
+    res = await fetch(url, {
+      signal,
+      headers: {
+        'X-Request-ID': crypto.randomUUID(),
+      },
+    });
   } catch (err) {
     // AbortError indicates cancelled request due to a newer search; rethrow as-is.
     if ((err as Error).name === 'AbortError') throw err;

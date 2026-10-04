@@ -15,12 +15,13 @@ describe('api error classification', () => {
     await expect(fetchCountries()).resolves.toEqual([{ code: 'tw' }]);
   });
 
-  it('builds the events URL with encoded params', async () => {
+  it('builds the events URL with encoded params and sends X-Request-ID header', async () => {
     mockFetch('{"events":[],"meta":{}}', 200);
     await searchEvents(form);
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
       '/api/v1/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=2026-07'
     );
+    expect(vi.mocked(fetch).mock.calls[0][1]?.headers).toHaveProperty('X-Request-ID');
   });
 
   it('treats an HTML page (Render waking up) as transient, never as a MoC failure', async () => {

@@ -68,13 +68,13 @@ export function ShowTimesModal({ event, onClose }: ShowTimesModalProps) {
       onClick={onClose}
     >
       <div
-        className="glass rounded-[32px] max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-[var(--panel-border)] max-h-[85vh] flex flex-col"
+        className="glass bg-white/95 dark:bg-[#0b0f19]/95 rounded-[32px] max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-[var(--panel-border)] max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start justify-between mb-4 pb-3 border-b border-[var(--panel-border-dim)] gap-3">
           <div>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--text-faint)] border border-[var(--panel-border-dim)]">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-white/10 text-[var(--text)] border border-[var(--panel-border-dim)]">
               {t('total_shows', { count: event.shows.length })}
             </span>
             <h3 id="modal-title" className="font-bold text-lg text-[var(--text)] mt-2">
@@ -89,7 +89,7 @@ export function ShowTimesModal({ event, onClose }: ShowTimesModalProps) {
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="h-9 w-9 shrink-0 rounded-full bg-[var(--surface-2)] hover:bg-white/10 flex items-center justify-center text-[var(--text-muted)] hover:text-white transition"
+            className="h-9 w-9 shrink-0 rounded-full bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] transition"
           >
             ✕
           </button>
@@ -106,7 +106,7 @@ export function ShowTimesModal({ event, onClose }: ShowTimesModalProps) {
                 {shows.map((show, idx) => (
                   <div
                     key={`${show.startTime}-${idx}`}
-                    className="text-xs p-2 rounded-xl bg-black/20 border border-[var(--panel-border-dim)] font-mono text-[var(--text-muted)] text-center"
+                    className="text-xs py-2 px-2.5 rounded-xl bg-slate-100/90 dark:bg-white/5 border border-slate-200/90 dark:border-white/10 font-mono font-medium text-[var(--text)] text-center shadow-xs"
                   >
                     {formatShowTime(show)}
                   </div>
@@ -118,7 +118,7 @@ export function ShowTimesModal({ event, onClose }: ShowTimesModalProps) {
 
         {/* Footer */}
         <div className="pt-4 mt-2 border-t border-[var(--panel-border-dim)] flex items-center justify-between">
-          <span className="text-xs text-[var(--text-faint)]">{t('modal_booking_hint')}</span>
+          <span className="text-xs text-[var(--text-muted)] font-medium">{t('modal_booking_hint')}</span>
           <button
             type="button"
             onClick={onClose}
