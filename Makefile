@@ -9,9 +9,9 @@ dev:
 	$(COMPOSE) build
 	docker image prune -f
 	@echo ""
-	@echo "Services ready:"
-	@echo "  Frontend: http://localhost:8790  (or http://0.0.0.0:8790)"
-	@echo "  Backend:  http://localhost:8789  (or http://0.0.0.0:8789)"
+	@echo "▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ Service ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅"
+	@echo "  ▶ Frontend: http://localhost:8790  (or http://0.0.0.0:8790)"
+	@echo "  ▶ Backend:  http://localhost:8789  (or http://0.0.0.0:8789)"
 	@echo ""
 	$(COMPOSE) up
 
@@ -21,9 +21,9 @@ dev-reset:
 	$(COMPOSE) build
 	docker image prune -f
 	@echo ""
-	@echo "Services ready:"
-	@echo "  Frontend: http://localhost:8790  (or http://0.0.0.0:8790)"
-	@echo "  Backend:  http://localhost:8789  (or http://0.0.0.0:8789)"
+	@echo "▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ Service ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅"
+	@echo "  ▶ Frontend: http://localhost:8790  (or http://0.0.0.0:8790)"
+	@echo "  ▶ Backend:  http://localhost:8789  (or http://0.0.0.0:8789)"
 	@echo ""
 	$(COMPOSE) up
 
