@@ -854,6 +854,11 @@ COMPOSE = HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f deployment/dev
 dev:
 	$(COMPOSE) build
 	docker image prune -f
+	@echo ""
+	@echo "Services ready:"
+	@echo "  Frontend: http://localhost:8790  (or http://0.0.0.0:8790)"
+	@echo "  Backend:  http://localhost:8789  (or http://0.0.0.0:8789)"
+	@echo ""
 	$(COMPOSE) up
 
 # 裝了新套件後跑這個：named volume 只在第一次建立時複製 image 內容，之後不會自己更新
@@ -861,6 +866,11 @@ dev-reset:
 	$(COMPOSE) down -v
 	$(COMPOSE) build
 	docker image prune -f
+	@echo ""
+	@echo "Services ready:"
+	@echo "  Frontend: http://localhost:8790  (or http://0.0.0.0:8790)"
+	@echo "  Backend:  http://localhost:8789  (or http://0.0.0.0:8789)"
+	@echo ""
 	$(COMPOSE) up
 
 # node_modules 要裝兩份：container 那份 (named volume) 負責執行，
