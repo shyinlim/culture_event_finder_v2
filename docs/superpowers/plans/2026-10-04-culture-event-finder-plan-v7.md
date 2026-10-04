@@ -428,7 +428,7 @@ git commit -m "feat(backend): scaffold backend with fail-fast settings and healt
 - Consumes: Task 1 的 `pyproject.toml`、`uv.lock`、`.python-version`；Task 2 的 `backend/manage.py` 與 `GET /health` → `{"status": "ok"}`
 - Produces:
   - compose project 名 `culture_event_finder_v2`，service 名 `backend`（Task 4 的 Vite proxy 用 Docker DNS `backend:8789` 連它）
-  - Makefile 變數 `COMPOSE`，target：`dev`、`dev-reset`、`test`、`test-backend`、`test-frontend`（佔位）、`build-prod`、`run-prod`
+  - Makefile 變數 `COMPOSE`，target：`dev`、`dev-reset`、`test`、`test-backend`、`test-frontend`（佔位）、`build-prod`、`run-prod`、`prune`
   - backend dev server：`http://localhost:8789`
 
 - [ ] **Step 1: 清掉 plan v6 留下的未 commit 檔案**
@@ -493,7 +493,7 @@ services:
 - [ ] **Step 4: 建立 `Makefile`**
 
 ```makefile
-.PHONY: dev dev-reset test test-backend test-frontend build-prod run-prod
+.PHONY: dev dev-reset test test-backend test-frontend build-prod run-prod prune
 
 # 所有 compose 指令都走這個變數，因為 compose 檔不在 root。
 # HOST_UID/HOST_GID 讓 backend container 用 host 的使用者身分寫 bind mount。
@@ -519,9 +519,14 @@ test: test-backend test-frontend
 # deployment/prod/Dockerfile 在 Task 12 才建立，在那之前這兩個 target 會失敗，屬預期
 build-prod:
 	docker build -f deployment/prod/Dockerfile -t culture-event-finder-prod .
+	docker image prune -f
 
 run-prod: build-prod
 	docker run --rm -p 8080:8080 -e SECRET_KEY=local-prod-test-key -e ALLOWED_HOSTS=localhost,127.0.0.1 culture-event-finder-prod
+
+# 清除 dangling images 釋放磁碟空間
+prune:
+	docker image prune -f
 ```
 
 Makefile 的 recipe 行開頭必須是 Tab，不能是空白。
@@ -832,7 +837,7 @@ volumes:
 - [ ] **Step 5: 更新 `Makefile`（完整內容）**
 
 ```makefile
-.PHONY: dev dev-reset install-host test test-backend test-frontend build-prod run-prod
+.PHONY: dev dev-reset install-host test test-backend test-frontend build-prod run-prod prune
 
 # 所有 compose 指令都走這個變數，因為 compose 檔不在 root。
 # HOST_UID/HOST_GID 讓 backend container 用 host 的使用者身分寫 bind mount。
@@ -863,9 +868,14 @@ test: test-backend test-frontend
 # deployment/prod/Dockerfile 在 Task 12 才建立，在那之前這兩個 target 會失敗，屬預期
 build-prod:
 	docker build -f deployment/prod/Dockerfile -t culture-event-finder-prod .
+	docker image prune -f
 
 run-prod: build-prod
 	docker run --rm -p 8080:8080 -e SECRET_KEY=local-prod-test-key -e ALLOWED_HOSTS=localhost,127.0.0.1 culture-event-finder-prod
+
+# 清除 dangling images 釋放磁碟空間
+prune:
+	docker image prune -f
 ```
 
 - [ ] **Step 6: `make test` 全測 ★ checkpoint**

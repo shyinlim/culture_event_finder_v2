@@ -1,4 +1,4 @@
-.PHONY: dev dev-reset test test-backend test-frontend build-prod run-prod
+.PHONY: dev dev-reset test test-backend test-frontend build-prod run-prod prune
 
 # All compose commands use this variable because docker-compose.yml is not in root.
 # HOST_UID/HOST_GID map host permissions for bind mounts.
@@ -24,6 +24,11 @@ test: test-backend test-frontend
 # Production Dockerfile is created in Task 12; failure before Task 12 is expected.
 build-prod:
 	docker build -f deployment/prod/Dockerfile -t culture-event-finder-prod .
+	docker image prune -f
 
 run-prod: build-prod
 	docker run --rm -p 8080:8080 -e SECRET_KEY=local-prod-test-key -e ALLOWED_HOSTS=localhost,127.0.0.1 culture-event-finder-prod
+
+# Remove dangling images to free disk space.
+prune:
+	docker image prune -f
