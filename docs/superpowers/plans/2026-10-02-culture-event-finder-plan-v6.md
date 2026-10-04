@@ -1,5 +1,7 @@
 # Culture Event Finder Refactor：Implementation Plan v6
 
+> ⛔ **SUPERSEDED**：由 `2026-10-04-culture-event-finder-plan-v7.md` 取代（部署檔移到 `deployment/`、dev port 改 8789/8790）。本 plan 的 Task 3、4、12 路徑已失效，不要執行。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Spec:** `docs/superpowers/specs/2026-10-02-culture-event-finder-design-v6.md`

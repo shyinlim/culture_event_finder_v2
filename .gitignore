@@ -6,8 +6,10 @@ __pycache__/
 *$py.class
  .idea/
  .idea
+ .idea/workspace.xml
 .DS_store
 .venv
+.codegraph
 
 
 # C extensions

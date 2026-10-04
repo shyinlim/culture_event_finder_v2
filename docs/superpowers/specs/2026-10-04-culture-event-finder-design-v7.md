@@ -61,11 +61,16 @@ culture_event_finder_v2/
 │   │   └── tests/
 │   └── health/                  # health check endpoints
 ├── frontend/                    # Vite + React + TypeScript
+│   ├── public/favicon.svg       # prod 在 /static/ 底下，CI 用它驗 base path
 │   └── src/
-│       ├── components/          # SearchForm, EventList, EventCard, ErrorMessage,
-│       │                        # SkeletonCard, LanguageSwitch, Icon
-│       ├── design.css           # 毛玻璃 design system（CSS variables + .glass 等）
-│       ├── api.ts               # 集中所有 fetch 呼叫
+│       ├── components/          # Scene, Icon, StatePanels, EventCard, EventList,
+│       │                        # CountryPicker, SearchForm, CategoryChips,
+│       │                        # LanguageSwitch, About
+│       ├── design.css           # 毛玻璃 design system（從 POC v27 抽出）
+│       ├── api.ts               # 集中所有 fetch 呼叫 + 錯誤分類
+│       ├── types.ts             # 與 §3.1 合約對應的型別
+│       ├── i18n.tsx             # 語系 context + 純函式
+│       ├── theme.ts             # 主題 hook
 │       ├── utils/               # format.ts（純函式，可單測）
 │       └── locales/             # zh.json / en.json
 ├── deployment/                  # 所有部署相關檔案集中在這裡，root 不放
@@ -73,9 +78,10 @@ culture_event_finder_v2/
 │   │   ├── docker-compose.yml   # dev 環境，起 backend + frontend
 │   │   ├── backend.Dockerfile   # dev 用 python container
 │   │   └── frontend.Dockerfile  # dev 用 node container
-│   └── prod/
-│       ├── Dockerfile           # prod multi-stage
-│       └── Dockerfile.dockerignore
+│   ├── prod/
+│   │   ├── Dockerfile           # prod multi-stage
+│   │   └── Dockerfile.dockerignore
+│   └── terraform/               # Phase 6 才建（§6.6）
 ├── docs/poc/                    # POC HTML 迭代紀錄（design reference，唯讀）
 ├── Makefile                     # 指令入口，留 root（不是部署設定）
 └── pyproject.toml / uv.lock     # Python 依賴，留 root
@@ -115,14 +121,19 @@ Dockerfile Path（§6.1），Cloud Run 改成 CI 自己 build image 再部署（
 
 ```
 GET /api/v1/countries
-    → [{ "code": "tw", "name": {...}, "locations": [...], "categories": [...] }]
-      前端下拉選單的資料來源；只回傳已註冊的國家。
+    → [{ "code": "tw", "name": {"zh", "en"},
+         "locations":  [{ "value": "臺北", "zh": "臺北", "en": "Taipei" }, ...],
+         "categories": [{ "value": "6", "zh": "展覽", "en": "Exhibition" }, ...] }]
+      前端下拉選單的唯一資料來源；只回傳已註冊的國家。
+      categories 的第一個是前端的預設類別。
 
 GET /api/v1/{country}/events?category=6&location=臺北&month=2026-07
-    → { "events": [ { "title", "startTime", "endTime", "location",
-                      "locationName", "onSales", "price", "googleMapUrl",
-                      "googleSearchUrl" } ],
+    → { "events": [ { "id", "title", "startTime", "endTime", "location",
+                      "locationName", "onSales", "price" } ],
         "meta": { "rawCount", "matchedCount", "cacheAge" } }
+      id 是 "<MoC UID>-<第幾場>"；onSales 是 boolean（MoC 的 "Y" 才是 true）；
+      cacheAge 是秒數，這次是 cache miss 時為 null。
+      Google Map 與 Google 搜尋連結由前端組（要 encodeURIComponent），不放在合約裡。
 
 GET /health
     → 200，平台 health check。不碰任何外部依賴，只證明 process 活著。
@@ -137,9 +148,9 @@ GET /health
 
 錯誤格式統一：`{ "error": { "code": "...", "message": "..." } }`
 
-- 參數缺漏/非法 → 400
-- 未支援的國家 → 404
-- 上游 (MoC) 失敗或 timeout → 502，前端顯示「資料來源暫時無法使用」
+- 參數缺漏/非法 → 400，`code` 為 `bad_request`
+- 未支援的國家 → 404，`code` 為 `not_found`
+- 上游 (MoC) 失敗或 timeout → 502，`code` 為 `upstream_error`，前端顯示「資料來源暫時無法使用」
 - 「查無結果」是 200 + 空陣列，與錯誤明確區分
 
 **參數一律對照 provider 白名單驗證。** `category` 必須在 `provider.categories` 的 value
@@ -155,7 +166,7 @@ GET /health
 
 1. **`str.isdigit()` 對上標數字回 True。** `'²'.isdigit()` 是 `True`，
    而 `int('²')` 拋 `ValueError`。`?category=²` 通過守衛、死在轉型。
-   判定要寫 `category.isascii() and category.isdigit()`。
+   解法是不轉 int：category 用字串直接比對白名單（白名單是 `"6"` 這種字串），`²` 自然不在裡面。
 2. **月份 regex 允許不存在的年份。** `^\d{4}-(0[1-9]|1[0-2])$` 接受 `0000-01`，
    而 `datetime.strptime("0000-01-01", "%Y-%m-%d")` 拋
    `ValueError: year 0 is out of range`。regex 收斂成
@@ -176,7 +187,9 @@ services 不 raise `KeyError`，view 的 try 區塊只留 `except UpstreamError`
   `locations`、`categories`、國家 metadata。加上 `Event` dataclass 與 `UpstreamError`。
 - `taiwan.py` 實作 MoC API。SSL `verify=False` workaround（`cloud.culture.tw` 憑證缺
   Subject Key Identifier，Python 3.13 拒連）封裝在此檔內並附註解。
-- Registry 用簡單 dict：`PROVIDERS = {"tw": TaiwanProvider()}`。
+- Registry 用簡單 dict：`PROVIDERS = {"tw": TaiwanProvider()}`，放在 `events/providers/__init__.py`。
+- **一場 showInfo 一個 Event。** MoC 一個活動可能有多場，每場的城市與時間不同
+  （v1 也是逐場處理）。只取第一場的話，巡演在其他城市的場次會被地區過濾靜默丟掉。
 - v1 `main_project/culture/data.py` 的 hardcoded Location/EventCategory 移植進
   `taiwan.py`（來源檔見 §7）。
 
@@ -318,7 +331,9 @@ API 收 ISO `month=2026-07`，MoC 的 `show['time']` 是 `YYYY/MM/DD HH:MM:SS`�
     分隔），尾端一個圓形/膠囊搜尋鈕。月份維持年 + 月兩個 `<select>`；刻意不用
     `<input type="month">`：桌面版 Firefox 與 Safari 全版本不支援，會 fallback 成純文字框
   - **類別 chips**：`地區/類別/年/月` 之外另有一列**四個**帶 icon 的類別快捷 chip
-    （展覽/表演/音樂/市集，各配一個 inline SVG icon：frame/masks/music/tent），
+    （展覽 6 / 戲劇 2 / 音樂 1 / 演唱會 17，各配一個 inline SVG icon：frame/masks/music/tent）。
+    POC 的第四個是「市集」，但 MoC 沒有市集類別（v1 `data.py` 的 12 類裡沒有，category 17
+    於 2026-10-04 實測是演唱會），所以第四個 chip 改成演唱會，沿用帳篷 icon，
     數量對齊 POC，不渲染全部 12 個類別（12 個 chip 在手機上會換三行、佔滿第一屏）。
     chip 與類別 `<select>` 是同一個 `value.category` 的兩個入口：
     select 是慢速精確設定，**chip 點下去直接觸發搜尋**（快捷就要一步到位，
@@ -402,8 +417,8 @@ POC 保留在 `docs/poc/` 作 design reference，不是丟棄式產物。
 
 這三項不寫下來的話，實作時會踩到而且不容易連結到原因：
 
-1. **時間一律用本地時區。** 後端整套釘死 `Asia/Taipei`（`TIME_ZONE`、`ENV TZ`、
-   `USE_TZ=False`）。前端取預設月份**不可以用 `toISOString()`**，那是 UTC，
+1. **時間一律用本地時區。** 後端 `TIME_ZONE = "Asia/Taipei"`、`USE_TZ = True`（以 repo 現況為準）；
+   MoC 的時間字串本身就是台灣時間，後端不做時區轉換、原樣傳給前端。前端取預設月份**不可以用 `toISOString()`**，那是 UTC，
    台灣時間每月 1 號 00:00 到 08:00 之間會抓成上個月，而且極難重現。
    用 `getFullYear()` + `getMonth()+1` 組字串。
 2. **`tsconfig.app.json` 要開 `resolveJsonModule`。** Vite 的 react-ts template
@@ -506,10 +521,10 @@ POC 保留在 `docs/poc/` 作 design reference，不是丟棄式產物。
   該版本確實讀這個環境變數，寫法有效。加 `CHOKIDAR_INTERVAL=1000` 降低 CPU 空轉。
 - container 內跑 non-root user。
 - Dockerfile 先 `COPY package.json package-lock.json`，再 `COPY` 其餘：吃 layer cache。
-- **backend 的 `CMD` 必須是 `uv run --frozen --no-sync`。** 裸的 `uv run` 每次啟動
-  都會重新 resolve 並 sync，而專案目錄是 bind mount 的 host repo。lock 只要稍微
-  drift，container 內的 process 就會把 `uv.lock` 改寫回你的工作目錄；
-  Linux host 上因為權限不符會直接起不來。
+- **backend 的 `CMD` 直接跑 `python`，不經過 `uv run`。** `PATH` 已含 `/opt/venv/bin`。
+  裸的 `uv run` 每次啟動都會重新 resolve 並 sync，而專案目錄是 bind mount 的 host repo，
+  lock 只要稍微 drift，container 就會把 `uv.lock` 改寫回你的工作目錄；
+  再加上 `user: HOST_UID` 時沒有可寫的 HOME 給 uv cache。prod 也是同樣做法。
 - **non-root user 加 bind mount 在 Linux host 上會壞。** build 時的 `chown`
   被 runtime 的 mount 蓋掉，檔案樹仍屬於 host 的 UID，container 內的 `appuser`
   連 `__pycache__` 都寫不了。macOS 的 Docker Desktop 會假裝 ownership 所以本機測不出來。
@@ -631,16 +646,15 @@ RUN SECRET_KEY=build-only-not-used ALLOWED_HOSTS=build-only \
 **不可以用 `ENV SECRET_KEY=`**，那會讓假值留在 image 裡變成 runtime 預設，
 等於廢掉整個守衛。**不可以用 `DEBUG=True` 繞過**，那會把 debug 帶進 prod image。
 
-同樣的道理，`make test` 與 CI 的 `test-backend` 也要注入假 SECRET_KEY，
-否則本機測試與 CI 一起掛。
+同樣的道理，`make test-backend` 帶 `DEBUG=True` 才過得了守衛；CI 也走同一個 make target，
+不另外裸跑 `uv run pytest`。
 
 #### PORT：Render 與 Cloud Run 都會注入 `$PORT`
 
 Render 預設注入 `PORT=10000`，Cloud Run 預設注入 `PORT=8080`。
-CMD 用 `${PORT:-8080}`，兩個平台都吃平台給的值，本機 `make run-prod` 吃預設的 8080。
-Dockerfile 保留 `ENV PORT=8080` 當本機預設值。
-(推論：平台在 runtime 注入的 `PORT` 會蓋過 image 的 `ENV`，這是 container env 的一般行為；
-Phase 5 首次部署時看 Render log 的 gunicorn `Listening at` 那一行確認是 10000)
+CMD 用 `${PORT:-8080}`，兩個平台都吃平台給的值，本機 `make run-prod` 沒注入時用預設的 8080。
+預設值只寫在 CMD 這一處，Dockerfile 不另寫 `ENV PORT`。
+Phase 5 首次部署時看 Render log 的 gunicorn `Listening at` 那一行，確認是 10000。
 
 部署驗證用 `curl`，不可只用瀏覽器（瀏覽器可能吃到快取而誤判成功）。
 
@@ -685,8 +699,8 @@ dev 的判定**只實作 `DEBUG` 一個訊號**。環境變數表也只留 `DEBU
 
 **GitHub Actions**（push master 與 PR）三個 job：
 
-1. `test-backend`：pytest（要注入假 SECRET_KEY 與 ALLOWED_HOSTS）
-2. `test-frontend`：vitest
+1. `test-backend`：`make test-backend`，與本機同一個入口（帶 `DEBUG=True`，fail-fast 守衛另由 Task 2 的 checkpoint 驗）
+2. `test-frontend`：`npm ci` 後 `make test-frontend`（tsc 與 vite build 由 build-smoke 的 docker build 負責）
 3. `build-smoke`：真的 `docker build -f deployment/prod/Dockerfile .` 起 container，curl `/health`、`/`、
    `/api/v1/countries`、一個放在 `public/` 的資產（驗 §6.1 的 base path），
    以及一個不存在的路徑（驗 SPA catch-all 回 200 不是 500）。
@@ -1047,7 +1061,7 @@ README 要有這張表。半年後要重建環境或輪替 key 時，這是唯�
 | `SECRET_KEY` | prod：Render dashboard → Environment；build：collectstatic 那行的假值；test：makefile 與 CI | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
 | `ALLOWED_HOSTS` | prod：Render dashboard → Environment，值為 Render 實際分配之完整網域（如 `<真實服務名>.onrender.com`，防隨機後綴不一致）；build 與 test 同上 | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
 | `DEBUG` | dev：`deployment/dev/docker-compose.yml` | Django | 預設走 prod 分支 |
-| `PORT` | prod：Render 自動注入 10000；Cloud Run 自動注入 8080；本機 `make run-prod` 靠 `deployment/prod/Dockerfile` 的 `ENV PORT=8080`。dev：backend 固定 8789、frontend 固定 8790，寫在 `deployment/dev/` 的 compose 與兩個 Dockerfile | gunicorn / runserver / Vite | 不會沒設 |
+| `PORT` | prod：Render 自動注入 10000；Cloud Run 自動注入 8080；本機 `make run-prod` 沒注入時用 CMD 的 `${PORT:-8080}`。dev：backend 固定 8789、frontend 固定 8790，寫在 `deployment/dev/` 的 compose 與兩個 Dockerfile | gunicorn / runserver / Vite | 不會沒設 |
 | `UV_PROJECT_ENVIRONMENT` | `deployment/dev/backend.Dockerfile` | uv | venv 落在 bind mount 內被 host 覆蓋 |
 | `HOST_UID` / `HOST_GID` | dev：Makefile 用 `id -u` / `id -g` 帶入（compose 讀，有預設值 1000） | dev container 的 non-root user | Linux host 上 UID 不是 1000 時 container 寫不了 bind mount |
 

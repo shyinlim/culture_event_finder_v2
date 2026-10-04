@@ -6,7 +6,10 @@
   <component name="ChangeListManager">
     <list default="true" id="0d0b0ef1-c13c-4b95-af44-02ae012103f9" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/roadmaps/2026-10-02-roadmap-v6.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/roadmaps/2026-10-02-roadmap-v6.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/superpowers/plans/2026-10-02-culture-event-finder-plan-v6.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/superpowers/plans/2026-10-02-culture-event-finder-plan-v6.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/superpowers/plans/2026-10-04-culture-event-finder-plan-v7.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/superpowers/plans/2026-10-04-culture-event-finder-plan-v7.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/docs/superpowers/specs/2026-10-04-culture-event-finder-design-v7.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/superpowers/specs/2026-10-04-culture-event-finder-design-v7.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />

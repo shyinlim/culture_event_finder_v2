@@ -1,0 +1,18 @@
+# 沒寫 name 的話 project name 會是目錄名 "dev"，容易跟其他專案撞名
+name: culture_event_finder_v2
+
+services:
+  backend:
+    build:
+      # 相對路徑從這個檔所在的 deployment/dev/ 算，../.. 就是 repo root
+      context: ../..
+      dockerfile: deployment/dev/backend.Dockerfile
+    # 用 host 的使用者身分跑，Linux host 上才寫得了 bind mount；值由 Makefile 帶入
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    volumes:
+      - ../..:/app
+    environment:
+      - DEBUG=True
+      - ALLOWED_HOSTS=localhost,127.0.0.1,backend
+    ports:
+      - "8789:8789"

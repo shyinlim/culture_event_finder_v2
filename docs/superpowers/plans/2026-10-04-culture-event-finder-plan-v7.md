@@ -31,7 +31,7 @@
 - **dev port：backend 8789、frontend 8790，container 內外同號。** 不用 8000、5173。Vite proxy 目標是 `http://backend:8789`。prod 本機預設維持 `PORT=8080`（平台會注入自己的值）。
 - **compose 檔頂層寫 `name: culture_event_finder_v2`**，否則 project name 會是目錄名 `dev`。
 - **compose 指令一律經過 Makefile**：`HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f deployment/dev/docker-compose.yml ...`。compose 讀 `${HOST_UID:-1000}:${HOST_GID:-1000}`，**不可以用 `UID` / `GID`**（沒 export，且 macOS `/bin/sh` 設為唯讀）。
-- **`uv` binary 版本釘死為 `ghcr.io/astral-sh/uv:0.12.5`**，勿用 `:latest`。出現在兩處（`deployment/dev/backend.Dockerfile`、`deployment/prod/Dockerfile`），兩處必須一致。
+- **`uv` 版本釘死為 `0.12.5`**，勿用 `:latest`。出現在三處（`deployment/dev/backend.Dockerfile`、`deployment/prod/Dockerfile` 的 `ghcr.io/astral-sh/uv:0.12.5`，以及 CI 的 `astral-sh/setup-uv@v10` 的 `version`），三處必須一致。
 - **dev container 用 `uv sync --frozen`（不加 `--no-dev`，保留 pytest 等 dev deps）；prod Dockerfile 才加 `--no-dev`。**
 - **backend container 的 venv 必須放在 bind mount 之外**：`ENV UV_PROJECT_ENVIRONMENT=/opt/venv`。venv 若落在 `/app/.venv`，host 的 macOS arm64 版本會覆蓋 container 的 linux 版本。
 - **build 期必須同時注入 `SECRET_KEY` 與 `ALLOWED_HOSTS`。** `collectstatic`、`make test`、CI 的 `test-backend` 三處都會觸發 settings 的 fail-fast 守衛，而兩個變數都是 fail-fast。使用行內注入 `RUN SECRET_KEY=build-only-not-used ALLOWED_HOSTS=build-only python ...`，**不可以用 `ENV SECRET_KEY=`**，**不可以用 `DEBUG=True` 繞過**。
@@ -48,7 +48,9 @@
 - **月份過濾用區間重疊判斷**：`start <= end_of_month and end >= start_of_month`，支援跨月展覽。
 - **地名比對前做 `臺` / `台` 正規化。**
 - **台灣 locations 是 20 個前綴、涵蓋 22 個縣市**（新竹市/縣共用「新竹」，嘉義市/縣共用「嘉義」）。測試斷言數字寫 20，名稱為 `test_location_prefixes_cover_22_counties`。
-- **參數嚴格驗證**：category 需 `category.isascii() and category.isdigit()`；月份 regex 為 `(19|20)\d{2}-(0[1-9]|1[0-2])`。
+- **參數嚴格驗證**：category 與 location 一律用字串比對 provider 白名單（不轉 int，所以 `²` 這類字元進不來）；月份用 `fullmatch` 比對 `(19|20)\d{2}-(0[1-9]|1[0-2])`。
+- **API 合約以 Task 7 的 Interfaces 為準**：錯誤一律 `{"error": {"code", "message"}}`；欄位用 camelCase；`/api/v1/countries` 一次帶回 locations 與 categories，沒有其他選項 endpoint。
+- **後端測試一律跑 `make test-backend`**（它帶 `DEBUG=True`）。裸跑 `uv run pytest` 會被 fail-fast 守衛擋下：`SECRET_KEY environment variable is required in production.`
 - **上游回應必須確認是 `list`**：`if not isinstance(payload, list): raise UpstreamError(...)`。
 - **`pytest.ini` 必須有 `python_files = test_*.py tests.py` 與 `addopts = --nomigrations`。**
 - **`make test` 拆成 `test-backend` 與 `test-frontend`。** `test` 同時呼叫兩者。
@@ -74,7 +76,9 @@
 
 ## Phase 1：骨架先立好
 
-### Task 1: uv 初始化與依賴配置
+### Task 1: uv 初始化與依賴配置 ✅ 已完成（commit `c2fa6fd`）
+
+> 已完成。以 repo 現況為準，下面的步驟只留作紀錄。
 
 **Files:**
 - Create: `pyproject.toml`
@@ -146,7 +150,9 @@ git commit -m "chore(infra): initialize uv dependency management with django 5.2
 
 ---
 
-### Task 2: 建立 `backend/` 目錄與 Django 骨架 ★ checkpoint
+### Task 2: 建立 `backend/` 目錄與 Django 骨架 ★ checkpoint ✅ 已完成（commit `b2616b9`）
+
+> 已完成。**`backend/config/settings.py` 以 repo 現況為準**：repo 對空字串的 `SECRET_KEY=` / `ALLOWED_HOSTS=` 也會 raise，比下面 Step 3 的 snippet（只檢查 `not in os.environ`）嚴格。下面的步驟只留作紀錄。
 
 **Files:**
 - Create: `backend/manage.py`
@@ -390,12 +396,12 @@ htmlcov/
 - [ ] **Step 10: 執行測試並驗證 fail-fast 守衛 ★ checkpoint**
 
 ```bash
-# 測試後端 health
-cd backend && uv run pytest .
+# 測試後端 health（DEBUG=True，否則 fail-fast 守衛會擋下 pytest）
+cd backend && DEBUG=True uv run pytest .
 
-# 驗證 fail-fast 守衛 (無 SECRET_KEY / ALLOWED_HOSTS 時必須 crash)
-DEBUG=False SECRET_KEY= uv run python manage.py check 2>&1 | grep -q "ImproperlyConfigured" && echo "OK: SECRET_KEY fail-fast verified"
-DEBUG=False SECRET_KEY=test-key ALLOWED_HOSTS= uv run python manage.py check 2>&1 | grep -q "ImproperlyConfigured" && echo "OK: ALLOWED_HOSTS fail-fast verified"
+# 驗證 fail-fast 守衛：比對完整訊息，才分得出是哪一個變數觸發的
+DEBUG=False SECRET_KEY= ALLOWED_HOSTS=localhost uv run python manage.py check 2>&1 | grep -q "SECRET_KEY environment variable is required" && echo "OK: SECRET_KEY fail-fast verified"
+DEBUG=False SECRET_KEY=test-key ALLOWED_HOSTS= uv run python manage.py check 2>&1 | grep -q "ALLOWED_HOSTS environment variable is required" && echo "OK: ALLOWED_HOSTS fail-fast verified"
 cd ..
 ```
 
@@ -456,8 +462,9 @@ RUN uv sync --frozen
 
 EXPOSE 8789
 
-# --frozen --no-sync：啟動時不重新 resolve，不會把 uv.lock 改寫回 host repo
-CMD ["uv", "run", "--frozen", "--no-sync", "python", "backend/manage.py", "runserver", "0.0.0.0:8789"]
+# 直接跑 venv 裡的 python（PATH 已含 /opt/venv/bin），runtime 不經過 uv：
+# 不會重新 resolve、不會把 uv.lock 改寫回 host repo，也不需要可寫的 uv cache 目錄
+CMD ["python", "backend/manage.py", "runserver", "0.0.0.0:8789"]
 ```
 
 - [ ] **Step 3: 建立 `deployment/dev/docker-compose.yml`（先含 backend，Task 4 加 frontend）**
@@ -615,7 +622,7 @@ git commit -m "feat(dev): add backend dev container under deployment/dev and Mak
     "tailwindcss": "^4.0.0",
     "typescript": "^5.6.3",
     "vite": "^6.0.0",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.0"
   }
 }
 ```
@@ -694,6 +701,11 @@ export default defineConfig(({ mode }) => ({
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+```
+
+建立 `frontend/public/favicon.svg`（POC 的 ticket icon）。`public/` 的檔案在 prod 會出現在 `/static/` 底下，Task 14 的 CI 用它驗證 base path：
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#B57004" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9a2 2 0 0 1 0 4v2a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2a2 2 0 0 1 0-4V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z"/><path d="M12 5v14" stroke-dasharray="2 3"/></svg>
 ```
 
 建立 `frontend/src/index.css`：
@@ -898,591 +910,737 @@ git commit -m "feat(frontend): scaffold vite react ts tailwind vitest with dev c
 
 ## Phase 2：後端
 
-### Task 5: Provider layer (base.py + taiwan.py + registry)
+### Task 5: Provider layer (base.py + taiwan.py + `PROVIDERS` dict)
 
 **Files:**
-- Create: `backend/events/__init__.py`
-- Create: `backend/events/apps.py`
-- Create: `backend/events/models.py` (空白或僅宣告不需要 DB)
-- Create: `backend/events/providers/__init__.py`
+- Create: `backend/events/__init__.py`（空檔）
+- Create: `backend/events/providers/__init__.py`（`PROVIDERS` dict）
 - Create: `backend/events/providers/base.py`
 - Create: `backend/events/providers/taiwan.py`
-- Create: `backend/events/providers/registry.py`
-- Create: `backend/events/tests/__init__.py`
+- Create: `backend/events/tests/__init__.py`（空檔）
 - Create: `backend/events/tests/test_providers.py`
-- Modify: `backend/config/settings.py`（加入 `events.apps.EventsConfig`）
+
+`events` 沒有 model、沒有 template，**不用 `apps.py`，也不用加進 `INSTALLED_APPS`**。pytest 照樣收得到 `events/tests/`。
 
 **Interfaces:**
-- `Provider` ABC：`fetch_events(category: str) -> list[Event]`、`locations: list[dict]`、`categories: list[dict]`、`metadata: dict`。
-- `TaiwanProvider`：封裝 MoC API、SSL workaround、20 個前綴涵蓋 22 縣市、list 驗證。
+- Produces:
+  - `Event`（frozen dataclass）：`id: str`、`title: str`、`start_time: str`（MoC 原格式 `YYYY/MM/DD HH:MM:SS`）、`end_time: str | None`、`location: str`（地址）、`location_name: str`（場館名）、`on_sales: bool`、`price: str`
+  - `UpstreamError(Exception)`
+  - `BaseProvider`：類別屬性 `code: str`、`name: dict[str, str]`、`locations: list[dict]`、`categories: list[dict]`；抽象方法 `fetch_events(category: str) -> list[Event]`
+  - 選項格式：`{"value": "6", "zh": "展覽", "en": "Exhibition"}`（locations 的 value 是地名前綴，例如 `"臺北"`）
+  - `PROVIDERS: dict[str, BaseProvider] = {"tw": TaiwanProvider()}`，從 `events.providers` import
 
-- [ ] **Step 1: 建立 `backend/events/apps.py` 與登錄 settings**
-
-```python
-# backend/events/apps.py
-from django.apps import AppConfig
-
-class EventsConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "events"
-```
-
-在 `backend/config/settings.py` 的 `INSTALLED_APPS` 加上 `"events.apps.EventsConfig"`。
-
-- [ ] **Step 2: 建立 `backend/events/providers/base.py` (保留 ABC 架構)**
+- [ ] **Step 1: 建立 `backend/events/providers/base.py`**
 
 ```python
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
+
 
 class UpstreamError(Exception):
-    """Raised when an external event data provider fails or returns invalid data."""
-    pass
+    """外部資料源失敗：連不上、timeout、回應不是預期格式。view 會轉成 502。"""
+
 
 @dataclass(frozen=True)
 class Event:
     id: str
     title: str
-    category: str
-    location: str
-    address: str
-    start_time: str  # ISO format string or YYYY-MM-DD HH:MM:SS
-    end_time: Optional[str]
-    price: str
-    description: str
-    source_url: str
-    image_url: Optional[str] = None
+    start_time: str          # MoC 原格式 "2026/07/12 19:30:00"
+    end_time: str | None
+    location: str            # 地址，例如 "臺北市中正區中山南路21-1號"
+    location_name: str       # 場館名，例如 "國家音樂廳"
+    on_sales: bool
+    price: str               # 自由文字，可能是 "500"、"0"、"洽詢主辦單位"
+
 
 class BaseProvider(ABC):
-    @property
-    @abstractmethod
-    def country_code(self) -> str:
-        """Two-letter country code in lowercase, e.g., 'tw'."""
-        pass
+    """一個國家（資料源）一個 provider。加國家時新增一個子類別，並登記到 PROVIDERS。"""
 
-    @property
-    @abstractmethod
-    def country_name(self) -> dict[str, str]:
-        """Localized country name, e.g., {'zh': '台灣', 'en': 'Taiwan'}."""
-        pass
-
-    @property
-    @abstractmethod
-    def categories(self) -> list[dict]:
-        """List of available category mappings: [{'id': '6', 'zh': '展覽', 'en': 'Exhibition'}, ...]"""
-        pass
-
-    @property
-    @abstractmethod
-    def locations(self) -> list[dict]:
-        """List of location prefixes."""
-        pass
+    code: str                      # "tw"
+    name: dict[str, str]           # {"zh": "台灣", "en": "Taiwan"}
+    locations: list[dict]          # [{"value": "臺北", "zh": "臺北", "en": "Taipei"}, ...]
+    categories: list[dict]         # [{"value": "6", "zh": "展覽", "en": "Exhibition"}, ...]
 
     @abstractmethod
     def fetch_events(self, category: str) -> list[Event]:
-        """Fetch raw events for a category from upstream source."""
-        pass
+        """抓某個類別的全部活動。失敗一律 raise UpstreamError。"""
 ```
 
-- [ ] **Step 3: 建立 `backend/events/providers/taiwan.py`**
+- [ ] **Step 2: 寫 provider 的失敗測試 `backend/events/tests/test_providers.py`**
 
 ```python
-import urllib3
 import requests
+import responses
+from django.test import SimpleTestCase
+
+from events.providers.base import UpstreamError
+from events.providers.taiwan import MOC_API_URL, TaiwanProvider
+
+
+def moc_item(uid="A1", shows=None):
+    """造一筆 MoC 格式的活動，欄位名稱照真實 API。"""
+    return {
+        "UID": uid,
+        "title": " 夏夜交響 ",
+        "showInfo": shows if shows is not None else [{
+            "time": "2026/07/12 19:30:00",
+            "endTime": "2026/07/14 21:00:00",
+            "location": "臺北市中正區中山南路21-1號",
+            "locationName": "國家音樂廳",
+            "onSales": "Y",
+            "price": "800",
+        }],
+    }
+
+
+class TaiwanProviderTests(SimpleTestCase):
+    def setUp(self):
+        self.provider = TaiwanProvider()
+
+    def test_location_prefixes_cover_22_counties(self):
+        # 新竹市/縣共用「新竹」、嘉義市/縣共用「嘉義」，所以 20 個前綴涵蓋 22 個縣市
+        values = [loc["value"] for loc in self.provider.locations]
+        self.assertEqual(len(values), 20)
+        for must_have in ("宜蘭", "連江", "新竹", "嘉義"):
+            self.assertIn(must_have, values)
+
+    @responses.activate
+    def test_one_event_per_show(self):
+        second_show = {
+            "time": "2026/08/01 14:00:00", "endTime": "", "location": "高雄市鹽埕區",
+            "locationName": "駁二", "onSales": "N", "price": "",
+        }
+        first_show = moc_item()["showInfo"][0]
+        responses.add(responses.GET, MOC_API_URL, json=[moc_item(shows=[first_show, second_show])])
+
+        events = self.provider.fetch_events("1")
+
+        # 一個活動兩場（不同城市），要變成兩個 Event，否則只看第一場會漏掉高雄
+        self.assertEqual([e.id for e in events], ["A1-0", "A1-1"])
+        self.assertEqual(events[0].title, "夏夜交響")
+        self.assertEqual(events[0].location_name, "國家音樂廳")
+        self.assertTrue(events[0].on_sales)
+        self.assertFalse(events[1].on_sales)
+        self.assertIsNone(events[1].end_time)
+
+    @responses.activate
+    def test_empty_list_is_not_an_error(self):
+        responses.add(responses.GET, MOC_API_URL, json=[])
+        self.assertEqual(self.provider.fetch_events("6"), [])
+
+    @responses.activate
+    def test_non_list_payload_raises(self):
+        responses.add(responses.GET, MOC_API_URL, json={"data": []})
+        with self.assertRaises(UpstreamError):
+            self.provider.fetch_events("6")
+
+    @responses.activate
+    def test_non_json_raises(self):
+        responses.add(responses.GET, MOC_API_URL, body="<html>maintenance</html>")
+        with self.assertRaises(UpstreamError):
+            self.provider.fetch_events("6")
+
+    @responses.activate
+    def test_http_500_raises(self):
+        responses.add(responses.GET, MOC_API_URL, status=500)
+        with self.assertRaises(UpstreamError):
+            self.provider.fetch_events("6")
+
+    @responses.activate
+    def test_timeout_raises(self):
+        responses.add(responses.GET, MOC_API_URL, body=requests.exceptions.ConnectTimeout())
+        with self.assertRaises(UpstreamError):
+            self.provider.fetch_events("6")
+
+    @responses.activate
+    def test_renamed_field_is_format_drift(self):
+        # MoC 改欄位名時 HTTP 仍是 200，這是唯一會亮的訊號
+        responses.add(responses.GET, MOC_API_URL, json=[{"UID": "A1", "name": "改名了"}])
+        with self.assertRaises(UpstreamError):
+            self.provider.fetch_events("6")
+
+    @responses.activate
+    def test_bad_time_format_is_format_drift(self):
+        show = dict(moc_item()["showInfo"][0], time="2026-07-12")
+        responses.add(responses.GET, MOC_API_URL, json=[moc_item(shows=[show])])
+        with self.assertRaises(UpstreamError):
+            self.provider.fetch_events("6")
+```
+
+- [ ] **Step 3: 跑測試確認失敗**
+
+```bash
+make test-backend
+```
+
+Expected: FAIL，`ModuleNotFoundError: No module named 'events.providers.taiwan'`。
+
+- [ ] **Step 4: 建立 `backend/events/providers/taiwan.py`**
+
+```python
+from datetime import datetime
+
+import requests
+import urllib3
 from toolkitsy.logger import logger
+
 from events.providers.base import BaseProvider, Event, UpstreamError
 
-# 關閉針對 MoC 政府憑證缺 Subject Key Identifier 的 InsecureRequestWarning
+# cloud.culture.tw 的憑證缺 Subject Key Identifier，Python 3.13 會拒連，只好 verify=False。
+# 這是暫時解，而且 disable_warnings 是整個 process 生效：MoC 哪天修好憑證，不會有任何東西通知你。
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 MOC_API_URL = "https://cloud.culture.tw/frontsite/trans/SearchShowAction.do"
+MOC_TIME_FORMAT = "%Y/%m/%d %H:%M:%S"
 
-# 20 個地點前綴，涵蓋台灣全部 22 個縣市 (新竹共用、嘉義共用)
-TAIWAN_LOCATIONS = [
-    {"id": "臺北", "zh": "臺北", "en": "Taipei"},
-    {"id": "新北", "zh": "新北", "en": "New Taipei"},
-    {"id": "桃園", "zh": "桃園", "en": "Taoyuan"},
-    {"id": "臺中", "zh": "臺中", "en": "Taichung"},
-    {"id": "臺南", "zh": "臺南", "en": "Tainan"},
-    {"id": "高雄", "zh": "高雄", "en": "Kaohsiung"},
-    {"id": "基隆", "zh": "基隆", "en": "Keelung"},
-    {"id": "新竹", "zh": "新竹", "en": "Hsinchu"},
-    {"id": "苗栗", "zh": "苗栗", "en": "Miaoli"},
-    {"id": "彰化", "zh": "彰化", "en": "Changhua"},
-    {"id": "南投", "zh": "南投", "en": "Nantou"},
-    {"id": "雲林", "zh": "雲林", "en": "Yunlin"},
-    {"id": "嘉義", "zh": "嘉義", "en": "Chiayi"},
-    {"id": "屏東", "zh": "屏東", "en": "Pingtung"},
-    {"id": "宜蘭", "zh": "宜蘭", "en": "Yilan"},
-    {"id": "花蓮", "zh": "花蓮", "en": "Hualien"},
-    {"id": "臺東", "zh": "臺東", "en": "Taitung"},
-    {"id": "澎湖", "zh": "澎湖", "en": "Penghu"},
-    {"id": "金門", "zh": "金門", "en": "Kinmen"},
-    {"id": "連江", "zh": "連江", "en": "Lienchiang"},
+# 20 個前綴涵蓋 22 個縣市：新竹市/縣共用「新竹」、嘉義市/縣共用「嘉義」
+LOCATIONS = [
+    {"value": "臺北", "zh": "臺北", "en": "Taipei"},
+    {"value": "新北", "zh": "新北", "en": "New Taipei"},
+    {"value": "基隆", "zh": "基隆", "en": "Keelung"},
+    {"value": "桃園", "zh": "桃園", "en": "Taoyuan"},
+    {"value": "新竹", "zh": "新竹", "en": "Hsinchu"},
+    {"value": "苗栗", "zh": "苗栗", "en": "Miaoli"},
+    {"value": "臺中", "zh": "臺中", "en": "Taichung"},
+    {"value": "彰化", "zh": "彰化", "en": "Changhua"},
+    {"value": "南投", "zh": "南投", "en": "Nantou"},
+    {"value": "雲林", "zh": "雲林", "en": "Yunlin"},
+    {"value": "嘉義", "zh": "嘉義", "en": "Chiayi"},
+    {"value": "臺南", "zh": "臺南", "en": "Tainan"},
+    {"value": "高雄", "zh": "高雄", "en": "Kaohsiung"},
+    {"value": "屏東", "zh": "屏東", "en": "Pingtung"},
+    {"value": "宜蘭", "zh": "宜蘭", "en": "Yilan"},
+    {"value": "花蓮", "zh": "花蓮", "en": "Hualien"},
+    {"value": "臺東", "zh": "臺東", "en": "Taitung"},
+    {"value": "澎湖", "zh": "澎湖", "en": "Penghu"},
+    {"value": "金門", "zh": "金門", "en": "Kinmen"},
+    {"value": "連江", "zh": "連江", "en": "Lienchiang"},
 ]
 
-TAIWAN_CATEGORIES = [
-    {"id": "1", "zh": "音樂", "en": "Music"},
-    {"id": "2", "zh": "戲劇", "en": "Theater"},
-    {"id": "3", "zh": "舞蹈", "en": "Dance"},
-    {"id": "4", "zh": "親子", "en": "Family"},
-    {"id": "5", "zh": "獨立音樂", "en": "Indie Music"},
-    {"id": "6", "zh": "展覽", "en": "Exhibition"},
-    {"id": "7", "zh": "講座", "en": "Lecture"},
-    {"id": "8", "zh": "電影", "en": "Movie"},
-    {"id": "11", "zh": "綜藝", "en": "Variety"},
-    {"id": "13", "zh": "競賽", "en": "Competition"},
-    {"id": "14", "zh": "徵選", "en": "Audition"},
-    {"id": "15", "zh": "其他", "en": "Other"},
-    {"id": "17", "zh": "市集", "en": "Market"},
-    {"id": "19", "zh": "研習課程", "en": "Workshop"},
+# 來源：v1 main_project/culture/data.py 的 12 個類別。
+# 第一個是前端的預設類別，所以展覽放第一。17 實測是演唱會（不是市集）。
+CATEGORIES = [
+    {"value": "6", "zh": "展覽", "en": "Exhibition"},
+    {"value": "1", "zh": "音樂", "en": "Music"},
+    {"value": "2", "zh": "戲劇", "en": "Theater"},
+    {"value": "3", "zh": "舞蹈", "en": "Dance"},
+    {"value": "4", "zh": "親子", "en": "Family"},
+    {"value": "5", "zh": "獨立音樂", "en": "Indie Music"},
+    {"value": "7", "zh": "講座", "en": "Lecture"},
+    {"value": "8", "zh": "電影", "en": "Movie"},
+    {"value": "11", "zh": "綜藝", "en": "Variety Show"},
+    {"value": "17", "zh": "演唱會", "en": "Concert"},
+    {"value": "19", "zh": "研習課程", "en": "Workshop"},
+    {"value": "200", "zh": "閱讀", "en": "Reading"},
 ]
+
+
+def parse_events(payload: list) -> list[Event]:
+    """把 MoC 的 JSON 轉成 Event。
+
+    一個活動有幾場 showInfo 就產生幾個 Event，因為每一場的城市與時間可能不同。
+    欄位缺漏或時間格式不對會直接拋 KeyError / ValueError 等，由呼叫端當成格式漂移處理。
+    """
+    events = []
+    for item in payload:
+        title = item["title"].strip()
+        for index, show in enumerate(item["showInfo"]):
+            end_time = show.get("endTime") or None
+            # 先驗時間格式，壞掉的資料在這裡就擋下，services 的日期計算才能放心用
+            datetime.strptime(show["time"], MOC_TIME_FORMAT)
+            if end_time:
+                datetime.strptime(end_time, MOC_TIME_FORMAT)
+            events.append(Event(
+                id=f"{item['UID']}-{index}",
+                title=title,
+                start_time=show["time"],
+                end_time=end_time,
+                location=show.get("location") or "",
+                location_name=show.get("locationName") or "",
+                on_sales=show.get("onSales") == "Y",
+                price=show.get("price") or "",
+            ))
+    return events
+
 
 class TaiwanProvider(BaseProvider):
-    country_code = "tw"
-    country_name = {"zh": "台灣", "en": "Taiwan"}
-    categories = TAIWAN_CATEGORIES
-    locations = TAIWAN_LOCATIONS
+    code = "tw"
+    name = {"zh": "台灣", "en": "Taiwan"}
+    locations = LOCATIONS
+    categories = CATEGORIES
 
     def fetch_events(self, category: str) -> list[Event]:
-        params = {"method": "doFindTypeJ", "category": category}
         try:
-            response = requests.get(MOC_API_URL, params=params, verify=False, timeout=15)
+            response = requests.get(
+                MOC_API_URL,
+                params={"method": "doFindTypeJ", "category": category},
+                verify=False,
+                timeout=15,
+            )
             response.raise_for_status()
             payload = response.json()
-        except requests.exceptions.RequestException as exc:
-            logger.error("TaiwanProvider HTTP request failed: %s", exc)
-            raise UpstreamError(f"MoC API request failed: {exc}") from exc
-        except ValueError as exc:
-            logger.error("TaiwanProvider JSON parse failed: %s", exc)
-            raise UpstreamError("MoC API returned invalid JSON") from exc
+        except (requests.RequestException, ValueError) as exc:
+            # 連線失敗、timeout、HTTP 4xx/5xx、回應不是 JSON
+            logger.error("MoC request failed category=%s: %r", category, exc)
+            raise UpstreamError(f"MoC request failed: {exc}") from exc
 
+        # response.json() 只保證是合法 JSON，不保證是 list（維護頁可能回 {"message": ...}）
         if not isinstance(payload, list):
-            logger.error("TaiwanProvider expected list payload, got %s", type(payload))
-            raise UpstreamError("MoC API payload format error: expected list")
+            logger.error("MoC payload is %s, expected list category=%s", type(payload).__name__, category)
+            raise UpstreamError("MoC payload is not a list")
 
-        events = []
-        for item in payload:
-            try:
-                event_id = str(item.get("UID", ""))
-                title = str(item.get("title", "")).strip()
-                if not event_id or not title:
-                    continue
+        try:
+            events = parse_events(payload)
+        except (KeyError, TypeError, AttributeError, ValueError) as exc:
+            # 格式漂移：先留 log 再拋，順序不可以顛倒，不然這個唯一的訊號一行紀錄都不會留下
+            logger.error("MoC format drift category=%s: %r", category, exc)
+            raise UpstreamError("MoC payload format changed") from exc
 
-                show_info_list = item.get("showInfo", [])
-                first_show = show_info_list[0] if isinstance(show_info_list, list) and show_info_list else {}
-
-                location_name = str(first_show.get("locationName", "")).strip()
-                address = str(first_show.get("location", "")).strip()
-                start_time = str(first_show.get("time", "")).strip()
-                end_time = str(first_show.get("endTime", "")).strip() or None
-                price = str(first_show.get("price", "")).strip()
-
-                desc = str(item.get("descriptionFilterHtml", "")).strip()
-                source_url = str(item.get("sourceWebPromote", "")).strip() or MOC_API_URL
-                image_url = str(item.get("imageUrl", "")).strip() or None
-
-                events.append(Event(
-                    id=event_id,
-                    title=title,
-                    category=category,
-                    location=location_name or address or "未提供地點",
-                    address=address,
-                    start_time=start_time,
-                    end_time=end_time,
-                    price=price,
-                    description=desc,
-                    source_url=source_url,
-                    image_url=image_url,
-                ))
-            except (AttributeError, TypeError) as exc:
-                logger.warning("Error parsing single event item: %s", exc)
-                continue
-
+        if payload and not events:
+            logger.error("MoC format drift category=%s: raw=%d parsed=0", category, len(payload))
+            raise UpstreamError("MoC payload parsed to zero events")
         return events
 ```
 
-- [ ] **Step 4: 建立 `backend/events/providers/registry.py`**
+- [ ] **Step 5: 建立 `backend/events/providers/__init__.py`**
 
 ```python
 from events.providers.base import BaseProvider
 from events.providers.taiwan import TaiwanProvider
 
+# 國家代碼 → provider。加國家就在這裡加一行。不要再包 factory 或 get_provider()。
 PROVIDERS: dict[str, BaseProvider] = {
     "tw": TaiwanProvider(),
 }
-
-def get_provider(country_code: str) -> BaseProvider | None:
-    return PROVIDERS.get(country_code.lower())
 ```
 
-- [ ] **Step 5: 建立 `backend/events/tests/test_providers.py`**
-
-```python
-import responses
-from django.test import TestCase
-from events.providers.taiwan import TaiwanProvider, MOC_API_URL
-from events.providers.base import UpstreamError
-
-class TaiwanProviderTests(TestCase):
-    def setUp(self):
-        self.provider = TaiwanProvider()
-
-    def test_location_prefixes_cover_22_counties(self):
-        # 斷言長度為 20 (新竹、嘉義共用)
-        self.assertEqual(len(self.provider.locations), 20)
-        location_ids = {loc["id"] for loc in self.provider.locations}
-        self.assertIn("宜蘭", location_ids)
-        self.assertIn("連江", location_ids)
-        self.assertIn("新竹", location_ids)
-
-    @responses.activate
-    def test_fetch_events_success(self):
-        mock_payload = [
-            {
-                "UID": "evt1",
-                "title": "測試展覽",
-                "showInfo": [{"time": "2026/07/01 10:00:00", "endTime": "2026/07/15 18:00:00", "location": "台北市信義區", "locationName": "松菸", "price": "免費"}],
-                "descriptionFilterHtml": "展覽介紹",
-                "sourceWebPromote": "https://example.com"
-            }
-        ]
-        responses.add(responses.GET, MOC_API_URL, json=mock_payload, status=200)
-
-        events = self.provider.fetch_events("6")
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].id, "evt1")
-        self.assertEqual(events[0].title, "測試展覽")
-        self.assertEqual(events[0].price, "免費")
-
-    @responses.activate
-    def test_fetch_events_non_list_payload_raises_upstream_error(self):
-        responses.add(responses.GET, MOC_API_URL, json={"data": []}, status=200)
-        with self.assertRaises(UpstreamError):
-            self.provider.fetch_events("6")
-
-    @responses.activate
-    def test_fetch_events_upstream_500_raises_upstream_error(self):
-        responses.add(responses.GET, MOC_API_URL, status=500)
-        with self.assertRaises(UpstreamError):
-            self.provider.fetch_events("6")
-```
-
-- [ ] **Step 6: 跑測試並驗證**
+- [ ] **Step 6: 跑測試確認通過**
 
 ```bash
-cd backend && uv run pytest events/tests/test_providers.py && cd ..
+make test-backend
 ```
 
-Expected: 全部 PASS。
+Expected: health 2 個 + provider 9 個全部 PASS。
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add backend/events/
-git commit -m "feat(backend): implement provider layer with BaseProvider ABC and TaiwanProvider"
+git commit -m "feat(backend): add provider layer with one Event per MoC show and format drift guard"
 ```
 
 ---
 
-### Task 6: Services layer (cache-aside + 區間重疊過濾 + 排序)
+### Task 6: Services layer（白名單驗證 + cache-aside + 區間重疊過濾）
 
 **Files:**
 - Create: `backend/events/services.py`
 - Create: `backend/events/tests/test_services.py`
 
 **Interfaces:**
-- `search_events(country: str, category: str, location: str, month: str) -> dict`
-- 包含 12h TTL LocMemCache、區間重疊比對、異體字正規化、白名單驗證、`meta: {rawCount, matchedCount, cacheAge}`。
+- Consumes: Task 5 的 `BaseProvider`、`Event`、`UpstreamError`、`PROVIDERS`、`MOC_API_URL`
+- Produces:
+  - `class BadRequest(Exception)`：參數不合法，view 轉成 400
+  - `search_events(provider: BaseProvider, category: str, location: str, month: str) -> dict`，回傳 `{"events": list[Event], "meta": {"rawCount": int, "matchedCount": int, "cacheAge": int | None}}`；`cacheAge` 為 `None` 代表這次是 cache miss
+  - `overlaps_month(event: Event, year: int, month: int) -> bool`
+  - `normalize_place(text: str) -> str`
 
-- [ ] **Step 1: 建立 `backend/events/services.py`**
+- [ ] **Step 1: 寫失敗測試 `backend/events/tests/test_services.py`**
 
 ```python
-import re
-import time
-from datetime import datetime, date
-import calendar
+import responses
 from django.core.cache import cache
-from toolkitsy.logger import logger
-from events.providers.registry import get_provider
+from django.test import SimpleTestCase
+
+from events.providers import PROVIDERS
 from events.providers.base import Event, UpstreamError
+from events.providers.taiwan import MOC_API_URL
+from events.services import BadRequest, overlaps_month, search_events
 
-MONTH_REGEX = re.compile(r"^(19|20)\d{2}-(0[1-9]|1[0-2])$")
+TW = PROVIDERS["tw"]
 
-def normalize_text(text: str) -> str:
-    """把 '台' 統一正規化為 '臺'"""
-    return text.replace("台", "臺")
 
-def parse_iso_or_slash_date(dt_str: str) -> date | None:
-    if not dt_str:
-        return None
-    cleaned = dt_str.strip().split()[0].replace("-", "/")
-    try:
-        return datetime.strptime(cleaned, "%Y/%m/%d").date()
-    except ValueError:
-        return None
+def make_event(start, end):
+    return Event(id="e1", title="t", start_time=start, end_time=end,
+                 location="臺北市", location_name="", on_sales=False, price="")
 
-def is_event_active_in_month(event: Event, target_year: int, target_month: int) -> bool:
-    start_d = parse_iso_or_slash_date(event.start_time)
-    if not start_d:
-        return False
 
-    end_d = parse_iso_or_slash_date(event.end_time) or start_d
+class OverlapTests(SimpleTestCase):
+    def test_year_long_exhibition_is_found_in_september(self):
+        # 展覽 88% 跨月，只比對開始月份的話這類活動九月查不到
+        event = make_event("2026/01/01 09:00:00", "2026/12/31 18:00:00")
+        self.assertTrue(overlaps_month(event, 2026, 9))
+        self.assertFalse(overlaps_month(event, 2025, 12))
 
-    # 當月的第一天與最後一天
-    first_day = date(target_year, target_month, 1)
-    last_day_num = calendar.monthrange(target_year, target_month)[1]
-    last_day = date(target_year, target_month, last_day_num)
+    def test_missing_end_time_uses_start_time(self):
+        event = make_event("2026/07/31 19:00:00", None)
+        self.assertTrue(overlaps_month(event, 2026, 7))
+        self.assertFalse(overlaps_month(event, 2026, 8))
 
-    # 區間重疊判斷: event_start <= month_end and event_end >= month_start
-    return start_d <= last_day and end_d >= first_day
 
-def validate_search_params(provider, category: str, location: str, month: str):
-    if not (category.isascii() and category.isdigit()):
-        raise ValueError("Invalid category parameter: must be ASCII digits.")
-
-    valid_cat_ids = {c["id"] for c in provider.categories}
-    if category not in valid_cat_ids:
-        raise ValueError(f"Category '{category}' is not supported.")
-
-    if not MONTH_REGEX.match(month):
-        raise ValueError("Invalid month format: must be YYYY-MM (e.g. 2026-07).")
-
-    norm_loc = normalize_text(location)
-    valid_loc_ids = {loc["id"] for loc in provider.locations}
-    if norm_loc not in valid_loc_ids:
-        raise ValueError(f"Location '{location}' is not supported.")
-
-    return norm_loc
-
-def get_cached_raw_events(country: str, category: str, provider) -> tuple[list[Event], int]:
-    cache_key = f"events:{country}:{category}"
-    cached_data = cache.get(cache_key)
-
-    now = int(time.time())
-    if cached_data is not None:
-        logger.info("cache HIT key=%s", cache_key)
-        events, cached_at = cached_data
-        cache_age = now - cached_at
-        return events, cache_age
-
-    logger.info("cache MISS key=%s", cache_key)
-    events = provider.fetch_events(category)
-    cache.set(cache_key, (events, now), timeout=43200)
-    return events, 0
-
-def search_events(country: str, category: str, location: str, month: str) -> dict:
-    provider = get_provider(country)
-    if not provider:
-        raise KeyError(f"Country '{country}' not found.")
-
-    norm_location = validate_search_params(provider, category, location, month)
-
-    raw_events, cache_age = get_cached_raw_events(country, category, provider)
-
-    year_str, month_str = month.split("-")
-    target_year = int(year_str)
-    target_month = int(month_str)
-
-    matched = []
-    for evt in raw_events:
-        # 地點 substring 比對 (皆正規化為 '臺')
-        evt_loc_norm = normalize_text(evt.location + " " + evt.address)
-        if norm_location not in evt_loc_norm:
-            continue
-
-        # 月份區間重疊判定
-        if not is_event_active_in_month(evt, target_year, target_month):
-            continue
-
-        matched.append(evt)
-
-    # 排序：依開始時間由近到遠
-    matched.sort(key=lambda e: e.start_time)
-
-    return {
-        "events": matched,
-        "meta": {
-            "rawCount": len(raw_events),
-            "matchedCount": len(matched),
-            "cacheAge": cache_age,
-        },
-    }
-```
-
-- [ ] **Step 2: 建立 `backend/events/tests/test_services.py`**
-
-```python
-from unittest.mock import patch
-from django.test import TestCase
-from django.core.cache import cache
-from events.providers.base import Event
-from events.services import search_events, is_event_active_in_month
-
-class ServicesTests(TestCase):
+class SearchEventsTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
 
-    def test_interval_overlap_matching_cross_month(self):
-        # 1月開跑、12月結束的跨月展覽
-        evt = Event(
-            id="e1", title="整年展覽", category="6", location="台北市", address="台北市",
-            start_time="2026/01/01 09:00:00", end_time="2026/12/31 18:00:00",
-            price="100", description="", source_url=""
-        )
-        # 查 9 月必須命中
-        self.assertTrue(is_event_active_in_month(evt, 2026, 9))
-        # 查 2025 年 12 月不可命中
-        self.assertFalse(is_event_active_in_month(evt, 2025, 12))
+    def moc_show(self, location, time="2026/07/12 19:30:00"):
+        return {"time": time, "endTime": "", "location": location,
+                "locationName": "", "onSales": "N", "price": "0"}
 
-    @patch("events.providers.taiwan.TaiwanProvider.fetch_events")
-    def test_search_events_cache_and_filter(self, mock_fetch):
-        mock_fetch.return_value = [
-            Event(
-                id="e1", title="松菸展覽", category="6", location="台北市松菸", address="台北市信義區",
-                start_time="2026/07/01 10:00:00", end_time="2026/07/20 18:00:00",
-                price="免費", description="", source_url=""
-            ),
-            Event(
-                id="e2", title="高雄市集", category="6", location="高雄市駁二", address="高雄市鹽埕區",
-                start_time="2026/07/01 10:00:00", end_time="2026/07/20 18:00:00",
-                price="免費", description="", source_url=""
-            ),
+    @responses.activate
+    def test_end_to_end_from_moc_json_to_filtered_result(self):
+        # 不 mock provider：從 MoC 原始字串一路走到 month=2026-07 的結果（spec §8）
+        responses.add(responses.GET, MOC_API_URL, json=[
+            {"UID": "a", "title": "台北場", "showInfo": [self.moc_show("台北市中正區")]},
+            {"UID": "b", "title": "高雄場", "showInfo": [self.moc_show("高雄市鹽埕區")]},
+            {"UID": "c", "title": "八月場", "showInfo": [self.moc_show("臺北市信義區", "2026/08/02 10:00:00")]},
+        ])
+
+        # 書籤裡的「台北」要能用，資料裡的「台北市」也要被「臺北」找到
+        first = search_events(TW, "6", "台北", "2026-07")
+        self.assertEqual([e.title for e in first["events"]], ["台北場"])
+        self.assertEqual(first["meta"], {"rawCount": 3, "matchedCount": 1, "cacheAge": None})
+
+        second = search_events(TW, "6", "臺北", "2026-07")
+        self.assertEqual(len(responses.calls), 1)          # 第二次走 cache，不再打上游
+        self.assertIsNotNone(second["meta"]["cacheAge"])
+
+    @responses.activate
+    def test_upstream_failure_is_cached_for_60_seconds(self):
+        responses.add(responses.GET, MOC_API_URL, status=500)
+        with self.assertRaises(UpstreamError):
+            search_events(TW, "6", "臺北", "2026-07")
+        with self.assertRaises(UpstreamError):
+            search_events(TW, "6", "臺北", "2026-07")
+        # 失敗期間不可以每個 request 都重打一次 15 秒的上游
+        self.assertEqual(len(responses.calls), 1)
+
+    def test_invalid_params_raise_bad_request(self):
+        cases = [
+            ("999999", "臺北", "2026-07"),   # 白名單外的類別
+            ("²", "臺北", "2026-07"),        # isdigit() 會放行的上標數字
+            ("", "臺北", "2026-07"),         # 缺參數
+            ("6", "東京", "2026-07"),        # 白名單外的地區
+            ("6", "臺北", "0000-01"),        # strptime 會炸的年份
+            ("6", "臺北", "2026-13"),
         ]
-
-        # 查詢台北 (輸入'台北'，需自動正規化命中'臺北')
-        result1 = search_events("tw", "6", "台北", "2026-07")
-        self.assertEqual(len(result1["events"]), 1)
-        self.assertEqual(result1["events"][0].id, "e1")
-        self.assertEqual(result1["meta"]["cacheAge"], 0)
-        self.assertEqual(mock_fetch.call_count, 1)
-
-        # 第二次相同類別查詢，命中快取，不應再次呼叫 fetch_events
-        result2 = search_events("tw", "6", "台北", "2026-07")
-        self.assertEqual(mock_fetch.call_count, 1)
-        self.assertGreaterEqual(result2["meta"]["cacheAge"], 0)
-
-    def test_search_events_invalid_params_raise_value_error(self):
-        with self.assertRaises(ValueError):
-            search_events("tw", "invalid_cat", "臺北", "2026-07")
-
-        with self.assertRaises(ValueError):
-            search_events("tw", "6", "東京", "2026-07")
-
-        with self.assertRaises(ValueError):
-            search_events("tw", "6", "臺北", "2026-13")
+        for category, location, month in cases:
+            with self.subTest(category=category, location=location, month=month):
+                with self.assertRaises(BadRequest):
+                    search_events(TW, category, location, month)
 ```
 
-- [ ] **Step 3: 跑測試並驗證**
+- [ ] **Step 2: 跑測試確認失敗**
 
 ```bash
-cd backend && uv run pytest events/tests/test_services.py && cd ..
+make test-backend
+```
+
+Expected: FAIL，`ModuleNotFoundError: No module named 'events.services'`。
+
+- [ ] **Step 3: 建立 `backend/events/services.py`**
+
+```python
+import calendar
+import re
+import time
+from datetime import date, datetime
+
+from django.core.cache import cache
+from toolkitsy.logger import logger
+
+from events.providers.base import BaseProvider, Event, UpstreamError
+
+MONTH_PATTERN = re.compile(r"(19|20)\d{2}-(0[1-9]|1[0-2])")
+FAILURE_TTL_SECONDS = 60          # 上游失敗後 60 秒內直接回 502，不再重打
+UPSTREAM_FAILED = "upstream_failed"
+
+
+class BadRequest(Exception):
+    """查詢參數不合法。view 轉成 400。"""
+
+
+def normalize_place(text: str) -> str:
+    """「台」統一成「臺」。白名單比對與地點過濾都要用這一個函式，不然 location=台北 會 400。"""
+    return text.replace("台", "臺")
+
+
+def _day(moc_time: str) -> date:
+    # MoC 格式 "2026/07/12 19:30:00"，provider 已經驗過格式，這裡只取日期
+    return datetime.strptime(moc_time.split(" ")[0], "%Y/%m/%d").date()
+
+
+def overlaps_month(event: Event, year: int, month: int) -> bool:
+    """活動區間 [開始, 結束] 和查詢月 [月初, 月底] 有交集就算命中。"""
+    start = _day(event.start_time)
+    end = _day(event.end_time) if event.end_time else start
+    first_day = date(year, month, 1)
+    last_day = date(year, month, calendar.monthrange(year, month)[1])
+    return start <= last_day and end >= first_day
+
+
+def _validate(provider: BaseProvider, category: str, location: str, month: str) -> str:
+    """參數對照 provider 白名單；回傳正規化後的地名。
+
+    用字串比對白名單、不轉 int，所以 "²" 這類 isdigit() 會放行的字元也進不來。
+    """
+    if category not in {c["value"] for c in provider.categories}:
+        raise BadRequest(f"unsupported category: {category!r}")
+    place = normalize_place(location)
+    if place not in {loc["value"] for loc in provider.locations}:
+        raise BadRequest(f"unsupported location: {location!r}")
+    if not MONTH_PATTERN.fullmatch(month):
+        raise BadRequest(f"month must be YYYY-MM: {month!r}")
+    return place
+
+
+def _cached_events(provider: BaseProvider, category: str) -> tuple[list[Event], int | None]:
+    """cache-aside。回傳 (events, cacheAge 秒數；這次是 miss 就回 None)。"""
+    key = f"events:{provider.code}:{category}"
+    cached = cache.get(key)
+    if cached == UPSTREAM_FAILED:
+        logger.info("cache NEGATIVE key=%s", key)
+        raise UpstreamError("upstream failed within the last 60 seconds")
+    if cached is not None:
+        events, stored_at = cached
+        logger.info("cache HIT key=%s", key)
+        return events, int(time.time() - stored_at)
+
+    logger.info("cache MISS key=%s", key)
+    try:
+        events = provider.fetch_events(category)
+    except UpstreamError:
+        cache.set(key, UPSTREAM_FAILED, FAILURE_TTL_SECONDS)
+        raise
+    cache.set(key, (events, time.time()))   # TTL 用 settings CACHES 的 TIMEOUT（12 小時）
+    return events, None
+
+
+def search_events(provider: BaseProvider, category: str, location: str, month: str) -> dict:
+    place = _validate(provider, category, location, month)
+    events, cache_age = _cached_events(provider, category)
+    year, mon = int(month[:4]), int(month[5:])
+
+    matched = [
+        e for e in events
+        if place in normalize_place(e.location) and overlaps_month(e, year, mon)
+    ]
+    matched.sort(key=lambda e: e.start_time)   # "YYYY/MM/DD HH:MM:SS" 字串排序就是時間排序
+
+    return {
+        "events": matched,
+        "meta": {"rawCount": len(events), "matchedCount": len(matched), "cacheAge": cache_age},
+    }
+```
+
+- [ ] **Step 4: 跑測試確認通過**
+
+```bash
+make test-backend
 ```
 
 Expected: 全部 PASS。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add backend/events/services.py backend/events/tests/test_services.py
-git commit -m "feat(backend): implement services layer with cache-aside, interval overlap, and normalization"
+git commit -m "feat(backend): add services with whitelist validation, negative caching, and month overlap"
 ```
 
 ---
 
-### Task 7: API endpoints + wiring ★ checkpoint
+### Task 7: API endpoints + correlation id ★ checkpoint
 
 **Files:**
 - Create: `backend/events/views.py`
 - Create: `backend/events/urls.py`
+- Create: `backend/events/middleware.py`
 - Modify: `backend/config/urls.py`
+- Modify: `backend/config/settings.py`（`configure()` 與 middleware）
 - Create: `backend/events/tests/test_views.py`
 
 **Interfaces:**
-- `GET /api/v1/countries`
-- `GET /api/v1/{country}/categories`
-- `GET /api/v1/{country}/locations`
-- `GET /api/v1/{country}/events?category=...&location=...&month=...`
+- Consumes: Task 6 的 `search_events`、`BadRequest`；Task 5 的 `PROVIDERS`、`UpstreamError`
+- Produces（前端 Task 8 照這份合約寫）：
+  - `GET /api/v1/countries` → `[{"code": "tw", "name": {"zh", "en"}, "locations": [選項], "categories": [選項]}]`，選項是 `{"value", "zh", "en"}`
+  - `GET /api/v1/{country}/events?category=&location=&month=YYYY-MM` → `{"events": [{"id", "title", "startTime", "endTime", "location", "locationName", "onSales", "price"}], "meta": {"rawCount", "matchedCount", "cacheAge"}}`
+  - 錯誤一律 `{"error": {"code": "bad_request" | "not_found" | "upstream_error", "message": "..."}}`，狀態碼 400 / 404 / 502
+  - 每個回應帶 `X-Request-ID` header
 
-- [ ] **Step 1: 建立 `backend/events/views.py`**
+- [ ] **Step 1: 寫失敗測試 `backend/events/tests/test_views.py`**
 
 ```python
-from dataclasses import asdict
+from unittest.mock import patch
+
+from django.core.cache import cache
+from django.test import SimpleTestCase
+
+from events.providers.base import Event, UpstreamError
+
+
+class EventApiTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_countries_carries_dropdown_options(self):
+        res = self.client.get("/api/v1/countries")
+        self.assertEqual(res.status_code, 200)
+        tw = res.json()[0]
+        self.assertEqual(tw["code"], "tw")
+        self.assertEqual(len(tw["locations"]), 20)
+        self.assertEqual(tw["categories"][0], {"value": "6", "zh": "展覽", "en": "Exhibition"})
+
+    def test_unknown_country_is_404_json(self):
+        res = self.client.get("/api/v1/jp/events?category=6&location=臺北&month=2026-07")
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.json()["error"]["code"], "not_found")
+
+    def test_bad_params_are_400_json_not_500_html(self):
+        for query in ("category=6", "category=²&location=臺北&month=2026-07",
+                      "category=6&location=臺北&month=0000-01"):
+            with self.subTest(query=query):
+                res = self.client.get(f"/api/v1/tw/events?{query}")
+                self.assertEqual(res.status_code, 400)
+                self.assertEqual(res.json()["error"]["code"], "bad_request")
+
+    # patch 的是 view 模組裡的名字：views.py 用 from ... import search_events，名字已綁在 events.views
+    @patch("events.views.search_events", side_effect=UpstreamError("MoC down"))
+    def test_upstream_error_is_502(self, _):
+        res = self.client.get("/api/v1/tw/events?category=6&location=臺北&month=2026-07")
+        self.assertEqual(res.status_code, 502)
+        self.assertEqual(res.json()["error"]["code"], "upstream_error")
+
+    @patch("events.views.search_events")
+    def test_success_uses_camel_case_contract(self, mock_search):
+        mock_search.return_value = {
+            "events": [Event("A1-0", "夏夜交響", "2026/07/12 19:30:00", None,
+                             "臺北市中正區", "國家音樂廳", True, "800")],
+            "meta": {"rawCount": 5, "matchedCount": 1, "cacheAge": None},
+        }
+        res = self.client.get("/api/v1/tw/events?category=6&location=臺北&month=2026-07")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["events"][0], {
+            "id": "A1-0", "title": "夏夜交響", "startTime": "2026/07/12 19:30:00", "endTime": None,
+            "location": "臺北市中正區", "locationName": "國家音樂廳", "onSales": True, "price": "800",
+        })
+
+    def test_every_response_has_request_id(self):
+        res = self.client.get("/api/v1/countries", HTTP_X_REQUEST_ID="abc123")
+        self.assertEqual(res["X-Request-ID"], "abc123")
+        self.assertTrue(self.client.get("/health")["X-Request-ID"])
+```
+
+- [ ] **Step 2: 跑測試確認失敗**
+
+```bash
+make test-backend
+```
+
+Expected: FAIL，`/api/v1/countries` 回 404。
+
+- [ ] **Step 3: 建立 `backend/events/views.py`**
+
+```python
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
-from events.providers.registry import PROVIDERS, get_provider
-from events.providers.base import UpstreamError
-from events.services import search_events
+
+from events.providers import PROVIDERS
+from events.providers.base import Event, UpstreamError
+from events.services import BadRequest, search_events
+
+
+def _error(status: int, code: str, message: str) -> JsonResponse:
+    return JsonResponse({"error": {"code": code, "message": message}}, status=status)
+
+
+def _event_to_json(event: Event) -> dict:
+    return {
+        "id": event.id,
+        "title": event.title,
+        "startTime": event.start_time,
+        "endTime": event.end_time,
+        "location": event.location,
+        "locationName": event.location_name,
+        "onSales": event.on_sales,
+        "price": event.price,
+    }
+
 
 @require_GET
-def list_countries(request):
+def countries(request):
     data = [
-        {"code": p.country_code, "name": p.country_name}
+        {"code": p.code, "name": p.name, "locations": p.locations, "categories": p.categories}
         for p in PROVIDERS.values()
     ]
-    return JsonResponse({"countries": data})
+    return JsonResponse(data, safe=False)
+
 
 @require_GET
-def list_categories(request, country):
-    provider = get_provider(country)
-    if not provider:
-        return JsonResponse({"error": f"Country '{country}' not found"}, status=404)
-    return JsonResponse({"categories": provider.categories})
-
-@require_GET
-def list_locations(request, country):
-    provider = get_provider(country)
-    if not provider:
-        return JsonResponse({"error": f"Country '{country}' not found"}, status=404)
-    return JsonResponse({"locations": provider.locations})
-
-@require_GET
-def get_events(request, country):
-    provider = get_provider(country)
-    if not provider:
-        return JsonResponse({"error": f"Country '{country}' not found"}, status=404)
-
-    category = request.GET.get("category", "").strip()
-    location = request.GET.get("location", "").strip()
-    month = request.GET.get("month", "").strip()
-
-    if not category or not location or not month:
-        return JsonResponse(
-            {"error": "Missing required query parameters: category, location, month"},
-            status=400,
-        )
-
+def events(request, country):
+    # 404 在 view 判斷；不要用 except KeyError 包住整個 service 呼叫，
+    # 不然 service 內部任何 KeyError 都會變成假的「不支援這個國家」
+    provider = PROVIDERS.get(country)
+    if provider is None:
+        return _error(404, "not_found", f"country not supported: {country}")
     try:
-        result = search_events(country, category, location, month)
-    except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        result = search_events(
+            provider,
+            request.GET.get("category", ""),
+            request.GET.get("location", ""),
+            request.GET.get("month", ""),
+        )
+    except BadRequest as exc:
+        return _error(400, "bad_request", str(exc))
     except UpstreamError as exc:
-        return JsonResponse({"error": "Upstream service error", "detail": str(exc)}, status=502)
-
-    events_data = [asdict(e) for e in result["events"]]
+        return _error(502, "upstream_error", str(exc))
     return JsonResponse({
-        "events": events_data,
+        "events": [_event_to_json(e) for e in result["events"]],
         "meta": result["meta"],
     })
 ```
 
-- [ ] **Step 2: 建立 `backend/events/urls.py` 並串接 `config/urls.py`**
+- [ ] **Step 4: 建立 `backend/events/middleware.py`**
+
+toolkitsy 的 `set_correlation_id` 用 `contextvars` 存值（已於 2026-10-04 用 `inspect.getsource` 確認），
+在 gunicorn `--threads 8` 下每個 thread 各自一份，不會錯掛。
 
 ```python
-# backend/events/urls.py
+import uuid
+
+from toolkitsy.logger import set_correlation_id
+
+
+class CorrelationIdMiddleware:
+    """每個 request 一個 id：寫進 log，也放進回應 header，朋友回報問題時可以拿去 Render Logs 搜（只保留 7 天）。"""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+        set_correlation_id(request_id)
+        response = self.get_response(request)
+        response["X-Request-ID"] = request_id
+        return response
+```
+
+- [ ] **Step 5: 接上 routing 與 settings**
+
+`backend/events/urls.py`：
+```python
 from django.urls import path
+
 from events import views
 
 urlpatterns = [
-    path("countries", views.list_countries, name="list-countries"),
-    path("<str:country>/categories", views.list_categories, name="list-categories"),
-    path("<str:country>/locations", views.list_locations, name="list-locations"),
-    path("<str:country>/events", views.get_events, name="get-events"),
+    path("countries", views.countries),
+    path("<str:country>/events", views.events),
 ]
+```
 
-# backend/config/urls.py
-from django.urls import path, include
+`backend/config/urls.py`：
+```python
+from django.urls import include, path
 
 urlpatterns = [
     path("health", include("health.urls")),
@@ -1491,1217 +1649,1644 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 3: 建立 `backend/events/tests/test_views.py`**
-
+`backend/config/settings.py`：在檔案最上方的 import 區加
 ```python
-from unittest.mock import patch
-from django.test import TestCase, Client
-from events.providers.base import Event, UpstreamError
+from toolkitsy.logger import configure
 
-class EventViewsTests(TestCase):
-    def setUp(self):
-        self.client = Client()
-
-    def test_list_countries(self):
-        res = self.client.get("/api/v1/countries")
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertIn("countries", data)
-        self.assertEqual(data["countries"][0]["code"], "tw")
-
-    def test_list_categories_and_locations(self):
-        res = self.client.get("/api/v1/tw/categories")
-        self.assertEqual(res.status_code, 200)
-        self.assertIn("categories", res.json())
-
-        res = self.client.get("/api/v1/tw/locations")
-        self.assertEqual(res.status_code, 200)
-        self.assertIn("locations", res.json())
-
-    def test_list_invalid_country_returns_404(self):
-        res = self.client.get("/api/v1/jp/categories")
-        self.assertEqual(res.status_code, 404)
-
-    def test_get_events_missing_params_returns_400(self):
-        res = self.client.get("/api/v1/tw/events?category=6")
-        self.assertEqual(res.status_code, 400)
-
-    @patch("events.services.search_events")
-    def test_get_events_upstream_error_returns_502(self, mock_search):
-        mock_search.side_effect = UpstreamError("MoC down")
-        res = self.client.get("/api/v1/tw/events?category=6&location=臺北&month=2026-07")
-        self.assertEqual(res.status_code, 502)
-        self.assertEqual(res.json()["error"], "Upstream service error")
-
-    @patch("events.services.search_events")
-    def test_get_events_success(self, mock_search):
-        mock_search.return_value = {
-            "events": [Event("1", "展覽", "6", "台北", "台北", "2026/07/01", "2026/07/02", "0", "desc", "url")],
-            "meta": {"rawCount": 1, "matchedCount": 1, "cacheAge": 0},
-        }
-        res = self.client.get("/api/v1/tw/events?category=6&location=臺北&month=2026-07")
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(len(res.json()["events"]), 1)
+configure()   # toolkitsy logger：console only
 ```
+並把 `MIDDLEWARE` 的第一項設為 `"events.middleware.CorrelationIdMiddleware"`（放第一個，後面所有 middleware 的 log 都帶得到 id）。
 
-- [ ] **Step 4: 執行後端全測試並打真實 MoC API 驗證 ★ checkpoint**
+- [ ] **Step 6: 跑全部後端測試**
 
 ```bash
-cd backend && uv run pytest . -v
-# 啟動 server 實測一次真實 MoC（port 8789 與 dev container 同號，先確認 make dev 沒在跑）
+make test-backend
+```
+
+Expected: 全部 PASS。
+
+- [ ] **Step 7: 打真實 MoC ★ checkpoint**
+
+```bash
+cd backend
+# port 8789 與 dev container 同號，先確認 make dev 沒在跑
 DEBUG=True uv run python manage.py runserver 127.0.0.1:8789 &
 SERVER_PID=$!
 sleep 2
 # 空陣列算沒過（spec §8.1），所以斷言 events 筆數 > 0，不是只找 "events" 字樣
 curl -s "http://127.0.0.1:8789/api/v1/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=$(date +%Y-%m)" \
-  | uv run python -c "import json,sys; n=len(json.load(sys.stdin)['events']); print('events:', n); assert n > 0" \
+  | uv run python -c "import json,sys; d=json.load(sys.stdin); n=len(d['events']); print('events:', n, 'meta:', d['meta']); assert n > 0" \
   && echo "OK: live MoC query works"
 kill $SERVER_PID
 cd ..
 ```
 
-Expected: 全部後端測試 PASS，印出 `events: <大於 0 的數字>` 與 `OK: live MoC query works`。
-若 events 為 0，先換一個 category 或月份確認上游真的有資料，再判斷是不是過濾邏輯壞了。
+Expected: 印出 `events: <大於 0>`、`meta` 的 `cacheAge` 是 `None`，以及 `OK: live MoC query works`。
+events 為 0 時，先換類別或月份確認上游真的有資料，再判斷是不是過濾邏輯壞了。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: 量 12 個類別的筆數與大小，寫回 spec §10**
 
 ```bash
-git add backend/events/views.py backend/events/urls.py backend/config/urls.py backend/events/tests/test_views.py
-git commit -m "feat(backend): wire API endpoints for countries, categories, locations, and events"
+for c in 6 1 2 3 4 5 7 8 11 17 19 200; do
+  curl -sk --max-time 30 "https://cloud.culture.tw/frontsite/trans/SearchShowAction.do?method=doFindTypeJ&category=$c" -o /tmp/moc_$c.json
+  printf "category=%-4s bytes=%-9s " "$c" "$(wc -c < /tmp/moc_$c.json)"
+  python3 -c "import json; d=json.load(open('/tmp/moc_$c.json')); print('events=', len(d), 'shows=', sum(len(e['showInfo']) for e in d))"
+done
+```
+
+Expected: 12 行都印得出筆數。把結果貼進 spec v7 §10「單 category 的資料量未量測」那一條。
+任何一類解析失敗，代表那一類的 payload 形狀不同，要先查清楚再進 Phase 3。
+單一類別超過幾 MB 的話，在 `CACHES` 的 `OPTIONS` 把 `MAX_ENTRIES` 改成 20。
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add backend/events/ backend/config/urls.py backend/config/settings.py
+git commit -m "feat(backend): add countries and events API with error contract and request id"
 ```
 
 ---
 
 ## Phase 3：前端
 
-### Task 8: 前端型別、API Client (結構化錯誤分類) 與格式工具函式 (TDD)
+前端檔案結構（spec §2）：
+
+```
+frontend/src/
+├── api.ts            # 所有 fetch 呼叫 + 錯誤分類
+├── types.ts          # 與後端合約對應的型別
+├── i18n.tsx          # 語系 context + 純函式
+├── theme.ts          # 主題 hook
+├── design.css        # 從 POC v27 抽出的毛玻璃 design system
+├── locales/          # zh.json / en.json
+├── utils/format.ts   # 有分支的純函式，全部配 Vitest
+└── components/       # 每個元件一個檔
+```
+
+### Task 8: 型別、API client、格式工具（TDD）
 
 **Files:**
-- Create: `frontend/src/types/index.ts`
-- Create: `frontend/src/api/client.ts`
-- Create: `frontend/src/utils/format.ts`
-- Create: `frontend/src/utils/format.test.ts`
-- Create: `frontend/src/api/client.test.ts`
+- Create: `frontend/src/types.ts`
+- Create: `frontend/src/utils/format.ts`、`frontend/src/utils/format.test.ts`
+- Create: `frontend/src/api.ts`、`frontend/src/api.test.ts`
 
 **Interfaces:**
-- `TransientError` / `UpstreamError` / `ClientError`
-- `formatDateRange(start, end)` (支援跨月)
-- `formatPrice(price)` (純數字加 $、0 顯示免費)
-- `buildGoogleMapUrl(location, address)` (URL encode)
-- `buildGoogleSearchUrl(title)` (URL encode)
+- Consumes: Task 7 的 API 合約（`/api/v1/countries`、`/api/v1/{country}/events`、錯誤格式）
+- Produces:
+  - 型別 `EventItem`、`LabeledOption`、`Country`、`QueryMeta`、`SearchForm`
+  - `fetchCountries(signal?) -> Promise<Country[]>`、`searchEvents(form: SearchForm, signal?) -> Promise<{ events: EventItem[]; meta: QueryMeta }>`
+  - 錯誤類別 `TransientError`、`UpstreamError`、`ClientError`，以及 `errorKind(err) -> 'transient' | 'upstream' | 'client'`
+  - `formatDateRange(start, end)`、`formatPrice(price, lang)`、`buildGoogleMapUrl(location, locationName)`、`buildGoogleSearchUrl(title)`、`currentYearMonth(now)`、`toMonthParam(year, month)`、`defaultForm(country, now)`、`findLabel(options, value)`
 
-- [ ] **Step 1: 建立 `frontend/src/types/index.ts`**
+- [ ] **Step 1: 建立 `frontend/src/types.ts`**
 
 ```typescript
+// 與後端 /api/v1 合約一一對應（spec §3.1）
+
 export interface EventItem {
   id: string;
   title: string;
-  category: string;
-  location: string;
-  address: string;
-  start_time: string;
-  end_time: string | null;
-  price: string;
-  description: string;
-  source_url: string;
-  image_url: string | null;
+  startTime: string;          // "2026/07/12 19:30:00"
+  endTime: string | null;
+  location: string;           // 地址
+  locationName: string;       // 場館名
+  onSales: boolean;
+  price: string;              // 自由文字："500"、"0"、"洽詢主辦單位"
 }
 
 export interface LabeledOption {
-  id: string | number;
+  value: string | number;     // 比對前一律 String()，後端改型別也不會讓 chip 靜默消失
   zh: string;
   en: string;
 }
 
-export interface CountryInfo {
+export interface Country {
   code: string;
   name: { zh: string; en: string };
-}
-
-export interface SearchQuery {
-  country: string;
-  category: string;
-  location: string;
-  year: string;
-  month: string;
+  locations: LabeledOption[];
+  categories: LabeledOption[];
 }
 
 export interface QueryMeta {
   rawCount: number;
   matchedCount: number;
-  cacheAge: number;
+  cacheAge: number | null;    // null 代表這次是 cache miss
+}
+
+export interface SearchForm {
+  country: string;
+  location: string;
+  category: string;
+  year: string;               // "2026"
+  month: string;              // "07"
 }
 ```
 
-- [ ] **Step 2: 建立 `frontend/src/utils/format.ts` 與 `format.test.ts` (TDD)**
+- [ ] **Step 2: 寫 `frontend/src/utils/format.test.ts`（先寫測試）**
 
 ```typescript
-// frontend/src/utils/format.ts
-export function buildGoogleMapUrl(location: string, address: string): string {
-  const query = address || location;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+import { describe, expect, it } from 'vitest';
+import {
+  buildGoogleMapUrl, buildGoogleSearchUrl, currentYearMonth, defaultForm,
+  findLabel, formatDateRange, formatPrice, toMonthParam,
+} from './format';
+import type { Country } from '../types';
+
+const tw: Country = {
+  code: 'tw',
+  name: { zh: '台灣', en: 'Taiwan' },
+  locations: [{ value: '臺北', zh: '臺北', en: 'Taipei' }, { value: '高雄', zh: '高雄', en: 'Kaohsiung' }],
+  categories: [{ value: '6', zh: '展覽', en: 'Exhibition' }, { value: 1, zh: '音樂', en: 'Music' }],
+};
+
+describe('formatDateRange', () => {
+  it('shows start only when there is no end time', () => {
+    expect(formatDateRange('2026/07/12 19:30:00', null)).toBe('2026/07/12 19:30');
+  });
+  it('shows a time range on the same day', () => {
+    expect(formatDateRange('2026/07/22 19:30:00', '2026/07/22 21:30:00')).toBe('07/22 19:30–21:30');
+  });
+  it('drops the year inside one month', () => {
+    expect(formatDateRange('2026/07/12 19:30:00', '2026/07/14 21:00:00')).toBe('07/12 19:30 – 07/14');
+  });
+  it('shows full dates across months', () => {
+    expect(formatDateRange('2026/01/01 09:00:00', '2026/12/31 18:00:00')).toBe('2026/01/01 – 2026/12/31');
+  });
+});
+
+describe('formatPrice', () => {
+  it('only treats "0" as free', () => {
+    expect(formatPrice('0', 'zh')).toBe('免費');
+    expect(formatPrice('0', 'en')).toBe('Free');
+    expect(formatPrice('', 'zh')).toBe('—');
+  });
+  it('prefixes $ only for pure numbers', () => {
+    expect(formatPrice('800', 'zh')).toBe('$800');
+    expect(formatPrice('洽詢主辦單位', 'zh')).toBe('洽詢主辦單位');
+    expect(formatPrice('全票100元', 'zh')).toBe('全票100元');
+  });
+});
+
+describe('external links', () => {
+  it('encodes & and # so the link does not break', () => {
+    expect(buildGoogleMapUrl('臺北市#1 & 2號', '')).toBe(
+      'https://www.google.com/maps/search/?api=1&query=%E8%87%BA%E5%8C%97%E5%B8%82%231%20%26%202%E8%99%9F');
+    expect(buildGoogleSearchUrl('A&B')).toBe('https://www.google.com/search?q=A%26B');
+  });
+  it('falls back to the venue name when the address is empty', () => {
+    expect(buildGoogleMapUrl('', '國家音樂廳')).toContain(encodeURIComponent('國家音樂廳'));
+  });
+});
+
+describe('search form helpers', () => {
+  it('uses local time, not UTC, for the default month', () => {
+    // 台灣時間 7/1 00:30 用 toISOString() 會變成 6/30，這是每月 1 號凌晨才出現的 bug
+    expect(currentYearMonth(new Date(2026, 6, 1, 0, 30))).toEqual({ year: '2026', month: '07' });
+  });
+  it('builds the API month param', () => {
+    expect(toMonthParam('2026', '07')).toBe('2026-07');
+  });
+  it('resets location and category to the first options of the country', () => {
+    expect(defaultForm(tw, new Date(2026, 8, 15))).toEqual({
+      country: 'tw', location: '臺北', category: '6', year: '2026', month: '09',
+    });
+  });
+  it('finds labels even when the value type differs', () => {
+    expect(findLabel(tw.categories, '1')).toEqual({ value: 1, zh: '音樂', en: 'Music' });
+    expect(findLabel(tw.categories, '999')).toBeUndefined();
+  });
+});
+```
+
+- [ ] **Step 3: 跑測試確認失敗**
+
+```bash
+cd frontend && npm test; cd ..
+```
+
+Expected: FAIL，`Failed to resolve import "./format"`。
+
+- [ ] **Step 4: 建立 `frontend/src/utils/format.ts`**
+
+```typescript
+import type { Country, LabeledOption, SearchForm } from '../types';
+
+// MoC 時間格式 "2026/07/12 19:30:00"：前 10 字是日期，接著 5 字是時:分
+function splitTime(moc: string): { day: string; hm: string } {
+  const [day, time = ''] = moc.split(' ');
+  return { day, hm: time.slice(0, 5) };
+}
+
+export function formatDateRange(start: string, end: string | null): string {
+  const s = splitTime(start);
+  if (!end) return `${s.day} ${s.hm}`.trim();
+  const e = splitTime(end);
+  if (s.day === e.day) return `${s.day.slice(5)} ${s.hm}–${e.hm}`;                 // 07/22 19:30–21:30
+  if (s.day.slice(0, 7) === e.day.slice(0, 7)) return `${s.day.slice(5)} ${s.hm} – ${e.day.slice(5)}`; // 07/12 19:30 – 07/14
+  return `${s.day} – ${e.day}`;                                                     // 2026/01/01 – 2026/12/31
+}
+
+// 票價是自由文字：只有 "0" 算免費、只有純數字加 $，其餘原樣顯示
+export function formatPrice(price: string, lang: 'zh' | 'en'): string {
+  const text = price.trim();
+  if (text === '') return '—';
+  if (text === '0') return lang === 'en' ? 'Free' : '免費';
+  if (/^\d+$/.test(text)) return `$${text}`;
+  return text;
+}
+
+export function buildGoogleMapUrl(location: string, locationName: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location || locationName)}`;
 }
 
 export function buildGoogleSearchUrl(title: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(title)}`;
 }
 
-export function formatPrice(priceStr: string, isEn = false): string {
-  const trimmed = priceStr.trim();
-  if (!trimmed || trimmed === '0') {
-    return isEn ? 'Free' : '免費';
-  }
-  if (/^\d+(\.\d+)?$/.test(trimmed)) {
-    return `$${trimmed}`;
-  }
-  return trimmed;
+// 一律用本地時區；toISOString() 是 UTC，台灣每月 1 號 00:00–08:00 會抓成上個月
+export function currentYearMonth(now: Date): { year: string; month: string } {
+  return { year: String(now.getFullYear()), month: String(now.getMonth() + 1).padStart(2, '0') };
 }
 
-export function formatDateRange(startStr: string, endStr: string | null): string {
-  if (!startStr) return '';
-  const cleanStart = startStr.trim().replace(/-/g, '/');
-  if (!endStr || !endStr.trim()) {
-    return cleanStart.split(' ')[0];
-  }
-  const cleanEnd = endStr.trim().replace(/-/g, '/');
-  const startDay = cleanStart.split(' ')[0];
-  const endDay = cleanEnd.split(' ')[0];
-
-  if (startDay === endDay) {
-    return startDay;
-  }
-  return `${startDay} – ${endDay}`;
+export function toMonthParam(year: string, month: string): string {
+  return `${year}-${month}`;
 }
 
-// frontend/src/utils/format.test.ts
-import { describe, it, expect } from 'vitest';
-import { buildGoogleMapUrl, buildGoogleSearchUrl, formatPrice, formatDateRange } from './format';
+// 預設條件與「切國家」「重設」共用：地區與類別都回到該國的第一個選項
+export function defaultForm(country: Country, now: Date): SearchForm {
+  return {
+    country: country.code,
+    location: String(country.locations[0].value),
+    category: String(country.categories[0].value),
+    ...currentYearMonth(now),
+  };
+}
 
-describe('Format Utils', () => {
-  it('encodes google map and search urls properly', () => {
-    expect(buildGoogleMapUrl('松菸 & 誠品', '台北市#1')).toContain('query=%E5%8F%B0%E5%8C%97%E5%B8%82%231');
-    expect(buildGoogleSearchUrl('藝術展 & 音樂會')).toContain('q=%E8%97%9D%E8%A1%93%E5%B1%95%20%26%20%E9%9F%B3%E6%A8%82%E6%9C%83');
+export function findLabel(options: LabeledOption[], value: string): LabeledOption | undefined {
+  return options.find((o) => String(o.value) === String(value));
+}
+```
+
+- [ ] **Step 5: 寫 `frontend/src/api.test.ts`（先寫測試）**
+
+```typescript
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ClientError, TransientError, UpstreamError, fetchCountries, searchEvents } from './api';
+
+function mockFetch(body: string, status: number) {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status })));
+}
+
+const form = { country: 'tw', location: '臺北', category: '6', year: '2026', month: '07' };
+
+describe('api error classification', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns parsed JSON on 200', async () => {
+    mockFetch('[{"code":"tw"}]', 200);
+    await expect(fetchCountries()).resolves.toEqual([{ code: 'tw' }]);
   });
 
-  it('formats prices with free or dollar prefix', () => {
-    expect(formatPrice('0')).toBe('免費');
-    expect(formatPrice('150')).toBe('$150');
-    expect(formatPrice('洽詢主辦單位')).toBe('洽詢主辦單位');
+  it('builds the events URL with encoded params', async () => {
+    mockFetch('{"events":[],"meta":{}}', 200);
+    await searchEvents(form);
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+      '/api/v1/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=2026-07');
   });
 
-  it('formats single date and date intervals', () => {
-    expect(formatDateRange('2026/07/01 10:00:00', null)).toBe('2026/07/01');
-    expect(formatDateRange('2026/07/01 10:00:00', '2026/07/15 18:00:00')).toBe('2026/07/01 – 2026/07/15');
+  it('treats an HTML page (Render waking up) as transient, never as a MoC failure', async () => {
+    mockFetch('<html>waking up</html>', 200);
+    await expect(fetchCountries()).rejects.toBeInstanceOf(TransientError);
+    mockFetch('<html>bad gateway</html>', 502);
+    await expect(fetchCountries()).rejects.toBeInstanceOf(TransientError);
+  });
+
+  it('treats 503 as transient', async () => {
+    mockFetch('{"error":{"code":"x","message":"y"}}', 503);
+    await expect(fetchCountries()).rejects.toBeInstanceOf(TransientError);
+  });
+
+  it('only a 502 with upstream_error JSON is an upstream error', async () => {
+    mockFetch('{"error":{"code":"upstream_error","message":"MoC down"}}', 502);
+    await expect(searchEvents(form)).rejects.toBeInstanceOf(UpstreamError);
+  });
+
+  it('400 and 404 are client errors', async () => {
+    mockFetch('{"error":{"code":"bad_request","message":"bad"}}', 400);
+    await expect(searchEvents(form)).rejects.toBeInstanceOf(ClientError);
+    mockFetch('{"error":{"code":"not_found","message":"nope"}}', 404);
+    await expect(searchEvents(form)).rejects.toBeInstanceOf(ClientError);
+  });
+
+  it('network failure is transient', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    await expect(fetchCountries()).rejects.toBeInstanceOf(TransientError);
+  });
+
+  it('lets AbortError through untouched', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')));
+    await expect(fetchCountries()).rejects.toHaveProperty('name', 'AbortError');
   });
 });
 ```
 
-- [ ] **Step 3: 建立 `frontend/src/api/client.ts` (結構化錯誤分類)**
+- [ ] **Step 6: 跑測試確認失敗**
+
+```bash
+cd frontend && npm test; cd ..
+```
+
+Expected: `format.test.ts` PASS，`api.test.ts` FAIL（`Failed to resolve import "./api"`）。
+
+- [ ] **Step 7: 建立 `frontend/src/api.ts`**
 
 ```typescript
-import { EventItem, QueryMeta, CountryInfo, LabeledOption } from '../types';
+import type { Country, EventItem, QueryMeta, SearchForm } from './types';
+import { toMonthParam } from './utils/format';
 
-export class TransientError extends Error {
-  constructor(message = '連線逾時或服務喚醒中，請稍候重試') {
-    super(message);
-    this.name = 'TransientError';
-  }
+// 三種錯誤決定畫面：可重試（連線/喚醒中）、文化部故障（可重試）、參數錯誤（不給重試鈕）
+export class TransientError extends Error { name = 'TransientError'; }
+export class UpstreamError extends Error { name = 'UpstreamError'; }
+export class ClientError extends Error { name = 'ClientError'; }
+
+export type ErrorKind = 'transient' | 'upstream' | 'client';
+
+export function errorKind(err: unknown): ErrorKind {
+  if (err instanceof UpstreamError) return 'upstream';
+  if (err instanceof ClientError) return 'client';
+  return 'transient';
 }
 
-export class UpstreamError extends Error {
-  constructor(message = '文化部資料來源暫時無法使用，請稍後再試') {
-    super(message);
-    this.name = 'UpstreamError';
-  }
-}
-
-export class ClientError extends Error {
-  constructor(message = '查詢參數無效') {
-    super(message);
-    this.name = 'ClientError';
-  }
-}
-
-async function handleResponse<T>(res: Response): Promise<T> {
-  let json: any;
+async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  let res: Response;
   try {
-    json = await res.json();
+    res = await fetch(url, { signal });
   } catch (err) {
-    // 非 JSON 回應 (例如 Render 叫醒期間吐的 HTML 或 503 暫態頁)
-    throw new TransientError('伺服器連線異常或正在喚醒中，請稍候重試');
+    if ((err as Error).name === 'AbortError') throw err;   // 被新的搜尋取消，不是錯誤
+    throw new TransientError('network error');
   }
 
-  if (!res.ok) {
-    if (res.status === 502) {
-      throw new UpstreamError(json.detail || '文化部資料來源暫時無法使用');
-    }
-    if (res.status === 400 || res.status === 404) {
-      throw new ClientError(json.error || '查詢請求錯誤');
-    }
-    if (res.status >= 500) {
-      throw new TransientError('伺服器連線異常，請稍候重試');
-    }
-    throw new Error(json.error || '未預期的錯誤');
-  }
-
-  return json as T;
-}
-
-export async function fetchCountries(signal?: AbortSignal): Promise<CountryInfo[]> {
+  let body: any;
   try {
-    const res = await fetch('/api/v1/countries', { signal });
-    const data = await handleResponse<{ countries: CountryInfo[] }>(res);
-    return data.countries;
-  } catch (err: any) {
-    if (err.name === 'AbortError') throw err;
-    if (err instanceof TransientError || err instanceof UpstreamError || err instanceof ClientError) throw err;
-    throw new TransientError('無法取得國家清單');
+    body = await res.json();
+  } catch {
+    // 不是 JSON：Render 喚醒中的 HTML 頁、平台的錯誤頁。絕不可以顯示成「文化部故障」
+    throw new TransientError(`non-JSON response (${res.status})`);
   }
+
+  if (res.ok) return body as T;
+  if (res.status === 502 && body?.error?.code === 'upstream_error') throw new UpstreamError(body.error.message);
+  if (res.status === 400 || res.status === 404) throw new ClientError(body?.error?.message ?? String(res.status));
+  throw new TransientError(`HTTP ${res.status}`);
 }
 
-export async function fetchCategories(country: string, signal?: AbortSignal): Promise<LabeledOption[]> {
-  const res = await fetch(`/api/v1/${country}/categories`, { signal });
-  const data = await handleResponse<{ categories: LabeledOption[] }>(res);
-  return data.categories;
+export function fetchCountries(signal?: AbortSignal): Promise<Country[]> {
+  return getJson<Country[]>('/api/v1/countries', signal);
 }
 
-export async function fetchLocations(country: string, signal?: AbortSignal): Promise<LabeledOption[]> {
-  const res = await fetch(`/api/v1/${country}/locations`, { signal });
-  const data = await handleResponse<{ locations: LabeledOption[] }>(res);
-  return data.locations;
-}
-
-export async function searchEvents(
-  country: string,
-  category: string,
-  location: string,
-  month: string,
-  signal?: AbortSignal
+export function searchEvents(
+  form: SearchForm,
+  signal?: AbortSignal,
 ): Promise<{ events: EventItem[]; meta: QueryMeta }> {
-  const params = new URLSearchParams({ category, location, month });
-  try {
-    const res = await fetch(`/api/v1/${country}/events?${params.toString()}`, { signal });
-    return await handleResponse<{ events: EventItem[]; meta: QueryMeta }>(res);
-  } catch (err: any) {
-    if (err.name === 'AbortError') throw err;
-    if (err instanceof TransientError || err instanceof UpstreamError || err instanceof ClientError) throw err;
-    throw new TransientError('網路連線逾時，請稍候再試');
-  }
+  const params = new URLSearchParams({
+    category: form.category,
+    location: form.location,
+    month: toMonthParam(form.year, form.month),
+  });
+  return getJson(`/api/v1/${form.country}/events?${params}`, signal);
 }
 ```
 
-- [ ] **Step 4: 執行前端測試驗證**
+- [ ] **Step 8: 跑測試確認通過**
 
 ```bash
-cd frontend && npm test && cd ..
+make test-frontend
 ```
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add frontend/src/types/ frontend/src/utils/ frontend/src/api/
-git commit -m "feat(frontend): add types, structured api client, and url/date formatting utils"
+git add frontend/src/types.ts frontend/src/utils/ frontend/src/api.ts frontend/src/api.test.ts
+git commit -m "feat(frontend): add api client with error classification and format utils"
 ```
 
 ---
 
-### Task 9: i18n 輕量語系系統與切換 ★ checkpoint
+### Task 9: i18n 與主題 ★ checkpoint
 
 **Files:**
-- Create: `frontend/src/locales/zh.json`
-- Create: `frontend/src/locales/en.json`
-- Create: `frontend/src/context/i18n.tsx`
-- Create: `frontend/src/context/i18n.test.ts`
+- Create: `frontend/src/locales/zh.json`、`frontend/src/locales/en.json`
+- Create: `frontend/src/i18n.tsx`、`frontend/src/i18n.test.tsx`
+- Create: `frontend/src/theme.ts`
 - Create: `frontend/src/components/LanguageSwitch.tsx`
 
 **Interfaces:**
-- `useI18n()` hook: `t(key)`, `lang`, `setLang(lang)`, `pickLabel(opt)`
-- Vitest 驗收三項斷言：缺 key fallback、pickLabel 在 en 正確、document.documentElement.lang 隨之更新。
+- Produces:
+  - 純函式 `translate(lang, key, params?)`、`pickLabel(item, lang)`、`initialLang()`
+  - `I18nProvider`、`useI18n() -> { lang, setLang, t, label }`，`label(item)` 是綁好目前語言的 `pickLabel`
+  - `useTheme() -> { theme, toggleTheme }`，`localStorage` key 是 `theme`（與 `index.html` 的 inline script 同一個 key）
+  - `LanguageSwitch`（可見文字 `EN` / `中` 就是 accessible name，不另掛 `aria-label`）
 
-- [ ] **Step 1: 建立語系字典**
+- [ ] **Step 1: 建立語系檔**
 
+`frontend/src/locales/zh.json`：
 ```json
-// frontend/src/locales/zh.json
 {
   "app_title": "Culture Event Finder",
+  "nav_search": "搜尋",
+  "nav_about": "關於",
+  "theme_toggle": "切換深淺色主題",
+  "coming_soon": "尚未開放",
+  "location": "地區",
+  "category": "類別",
+  "year": "年份",
+  "month": "月份",
   "search": "搜尋",
   "reset": "重設",
-  "loading_short": "搜尋活動中...",
-  "loading_slow": "第一次查詢比較慢，正在向文化部要資料...",
-  "empty_title": "查無相關活動",
-  "empty_desc": "換個地區或月份再試一次，或者清除條件重設。",
-  "retry": "重新嘗試",
-  "free": "免費",
-  "country": "國家",
-  "category": "類別",
-  "location": "地區",
-  "year": "年",
-  "month": "月",
-  "about": "關於",
-  "total_events": "{{count}} 筆活動"
-}
-
-// frontend/src/locales/en.json
-{
-  "app_title": "Culture Event Finder",
-  "search": "Search",
-  "reset": "Reset",
-  "loading_short": "Searching events...",
-  "loading_slow": "First query takes longer, fetching from Ministry of Culture...",
-  "empty_title": "No Events Found",
-  "empty_desc": "Try another region or month, or reset your search filters.",
-  "retry": "Try Again",
-  "free": "Free",
-  "country": "Country",
-  "category": "Category",
-  "location": "Region",
-  "year": "Year",
-  "month": "Month",
-  "about": "About",
-  "total_events": "{{count}} events"
+  "quick_categories": "快捷類別",
+  "idle_title": "選好條件，按搜尋",
+  "idle_desc": "預設是本月、臺北的展覽。也可以直接點下面的類別。",
+  "loading_short": "搜尋活動中…",
+  "loading_slow": "第一次查詢比較慢，正在向文化部要資料",
+  "empty_title": "找不到符合條件的活動",
+  "empty_desc": "換個地區、類別或月份再試一次，或按「重設」回到預設條件。",
+  "error_transient_title": "連線逾時或服務喚醒中",
+  "error_transient_desc": "請稍候幾秒再試一次。",
+  "error_upstream_title": "文化部資料來源暫時無法使用",
+  "error_upstream_desc": "這不是你的網路問題，請稍後再試。",
+  "error_client_title": "查詢條件無效",
+  "error_client_desc": "請重新選擇地區、類別與月份。",
+  "retry": "重新整理",
+  "result_count": "{{place}} · {{category}} · {{ym}} 共 {{count}} 筆",
+  "on_sales": "🔥 熱賣中",
+  "google_search": "Google 搜尋",
+  "about_title": "關於 Culture Event Finder",
+  "about_desc": "整合台灣文化部公開資料的活動搜尋工具。以 country provider 架構設計，未來可擴充其他國家的公開資料源。",
+  "about_author": "作者"
 }
 ```
 
-- [ ] **Step 2: 建立 `frontend/src/context/i18n.tsx`**
+`frontend/src/locales/en.json`：
+```json
+{
+  "app_title": "Culture Event Finder",
+  "nav_search": "Search",
+  "nav_about": "About",
+  "theme_toggle": "Toggle light and dark theme",
+  "coming_soon": "Coming soon",
+  "location": "Region",
+  "category": "Category",
+  "year": "Year",
+  "month": "Month",
+  "search": "Search",
+  "reset": "Reset",
+  "quick_categories": "Quick categories",
+  "idle_title": "Pick your filters and search",
+  "idle_desc": "Defaults to exhibitions in Taipei this month. Or tap a category below.",
+  "loading_short": "Searching events…",
+  "loading_slow": "The first search is slower, fetching data from the Ministry of Culture",
+  "empty_title": "No matching events",
+  "empty_desc": "Try another region, category or month, or press Reset to go back to the defaults.",
+  "error_transient_title": "Connection timed out or the service is waking up",
+  "error_transient_desc": "Please wait a few seconds and try again.",
+  "error_upstream_title": "The Ministry of Culture data source is unavailable",
+  "error_upstream_desc": "This is not your network. Please try again later.",
+  "error_client_title": "Invalid search",
+  "error_client_desc": "Please choose region, category and month again.",
+  "retry": "Reload",
+  "result_count": "{{place}} · {{category}} · {{ym}}: {{count}} events",
+  "on_sales": "🔥 On sale",
+  "google_search": "Google search",
+  "about_title": "About Culture Event Finder",
+  "about_desc": "An event finder built on Taiwan Ministry of Culture open data. The country provider design leaves room for other countries' data sources.",
+  "about_author": "Author"
+}
+```
+
+- [ ] **Step 2: 寫 `frontend/src/i18n.test.tsx`（先寫測試，測的是真正的 i18n.tsx）**
 
 ```tsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import zhDict from '../locales/zh.json';
-import enDict from '../locales/en.json';
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { describe, expect, it } from 'vitest';
+import { I18nProvider, pickLabel, translate, useI18n } from './i18n';
+
+// 讓 React 知道這是測試環境，act() 才會等 effect 跑完
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
+describe('i18n', () => {
+  it('falls back to the key itself when a key is missing', () => {
+    expect(translate('en', 'no_such_key')).toBe('no_such_key');
+  });
+
+  it('fills {{params}}', () => {
+    expect(translate('zh', 'result_count', { place: '臺北', category: '音樂', ym: '2026/07', count: 12 }))
+      .toBe('臺北 · 音樂 · 2026/07 共 12 筆');
+  });
+
+  it('pickLabel returns English in en', () => {
+    expect(pickLabel({ zh: '台灣', en: 'Taiwan' }, 'en')).toBe('Taiwan');
+  });
+
+  it('switching language updates <html lang> and remembers it', async () => {
+    const ref: { current: ReturnType<typeof useI18n> | null } = { current: null };
+    function Probe() {
+      ref.current = useI18n();
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    await act(async () => root.render(<I18nProvider><Probe /></I18nProvider>));
+
+    await act(async () => ref.current!.setLang('en'));
+    expect(document.documentElement.lang).toBe('en');
+    expect(localStorage.getItem('lang')).toBe('en');
+
+    await act(async () => ref.current!.setLang('zh'));
+    expect(document.documentElement.lang).toBe('zh-Hant');
+    await act(async () => root.unmount());   // unmount 也要包 act，不然會印 not wrapped in act 警告
+  });
+});
+```
+
+- [ ] **Step 3: 跑測試確認失敗**
+
+```bash
+make test-frontend
+```
+
+Expected: FAIL，`Failed to resolve import "./i18n"`。
+
+- [ ] **Step 4: 建立 `frontend/src/i18n.tsx`**
+
+```tsx
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import en from './locales/en.json';
+import zh from './locales/zh.json';
 
 export type Lang = 'zh' | 'en';
 
-const dictionaries: Record<Lang, Record<string, string>> = {
-  zh: zhDict,
-  en: enDict,
-};
+const DICTS: Record<Lang, Record<string, string>> = { zh, en };
 
-interface I18nContextType {
+// 純函式放在元件外面，Vitest 可以直接測
+export function translate(lang: Lang, key: string, params?: Record<string, string | number>): string {
+  let text = DICTS[lang][key] ?? key;     // 缺 key 時回傳 key 本身，畫面上一眼看得出缺哪個
+  for (const [name, value] of Object.entries(params ?? {})) {
+    text = text.replaceAll(`{{${name}}}`, String(value));
+  }
+  return text;
+}
+
+export function pickLabel(item: { zh: string; en: string }, lang: Lang): string {
+  return item[lang] || item.zh;
+}
+
+// 跟主題一樣要持久化：先看 localStorage，沒有才看瀏覽器語言
+export function initialLang(): Lang {
+  const saved = localStorage.getItem('lang');
+  if (saved === 'zh' || saved === 'en') return saved;
+  return navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+}
+
+interface I18nValue {
   lang: Lang;
   setLang: (lang: Lang) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
-  pickLabel: (item: { zh: string; en: string }) => string;
+  label: (item: { zh: string; en: string }) => string;
 }
 
-const I18nContext = createContext<I18nContextType | null>(null);
+const I18nContext = createContext<I18nValue | null>(null);
 
-export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [lang, setLangState] = useState<Lang>(() => {
-    const saved = localStorage.getItem('lang');
-    if (saved === 'zh' || saved === 'en') return saved;
-    return navigator.language.startsWith('zh') ? 'zh' : 'en';
-  });
-
-  const setLang = (newLang: Lang) => {
-    setLangState(newLang);
-    localStorage.setItem('lang', newLang);
-    document.documentElement.lang = newLang === 'zh' ? 'zh-Hant' : 'en';
-  };
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [lang, setLang] = useState<Lang>(initialLang);
 
   useEffect(() => {
     document.documentElement.lang = lang === 'zh' ? 'zh-Hant' : 'en';
+    localStorage.setItem('lang', lang);
   }, [lang]);
 
-  const t = (key: string, params?: Record<string, string | number>): string => {
-    let text = dictionaries[lang][key] || dictionaries.zh[key] || key;
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        text = text.replace(new RegExp(`{{${k}}}`, 'g'), String(v));
-      });
-    }
-    return text;
+  const value: I18nValue = {
+    lang,
+    setLang,
+    t: (key, params) => translate(lang, key, params),
+    label: (item) => pickLabel(item, lang),
   };
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
 
-  const pickLabel = (item: { zh: string; en: string }): string => {
-    return item[lang] || item.zh || '';
-  };
-
-  return (
-    <I18nContext.Provider value={{ lang, setLang, t, pickLabel }}>
-      {children}
-    </I18nContext.Provider>
-  );
-};
-
-export function useI18n(): I18nContextType {
+export function useI18n(): I18nValue {
   const ctx = useContext(I18nContext);
-  if (!ctx) throw new Error('useI18n must be used within I18nProvider');
+  if (!ctx) throw new Error('useI18n must be used inside <I18nProvider>');
   return ctx;
 }
 ```
 
-- [ ] **Step 3: 建立 `frontend/src/components/LanguageSwitch.tsx`**
+`tsconfig.json` 的 `lib` 是 ES2022，`String.prototype.replaceAll` 可以用。
+
+- [ ] **Step 5: 建立 `frontend/src/theme.ts`**
+
+```typescript
+import { useEffect, useState } from 'react';
+
+export type Theme = 'dark' | 'light';
+
+// key 要跟 index.html 的 inline script 一樣，那段 script 在 React 載入前先設好 data-theme，避免閃一下
+function initialTheme(): Theme {
+  const saved = localStorage.getItem('theme');
+  if (saved === 'dark' || saved === 'light') return saved;
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+export function useTheme() {
+  const [theme, setTheme] = useState<Theme>(initialTheme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  return { theme, toggleTheme: () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')) };
+}
+```
+
+- [ ] **Step 6: 建立 `frontend/src/components/LanguageSwitch.tsx`**
 
 ```tsx
-import React from 'react';
-import { useI18n } from '../context/i18n';
+import { useI18n } from '../i18n';
 
-export const LanguageSwitch: React.FC = () => {
+// 看得到的字（EN / 中）本身就是 accessible name，不要另掛 aria-label（WCAG 2.5.3 Label in Name）
+export function LanguageSwitch({ size }: { size: 'h-11 w-11' | 'h-9 w-9' }) {
   const { lang, setLang } = useI18n();
-
   return (
     <button
       type="button"
       onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-      className="h-9 px-3 rounded-full border border-white/20 bg-white/5 hover:bg-white/10 text-xs font-medium transition backdrop-blur-md"
+      className={`btn-secondary ${size} rounded-full flex items-center justify-center text-sm font-semibold`}
     >
       {lang === 'zh' ? 'EN' : '中'}
     </button>
   );
-};
+}
 ```
 
-- [ ] **Step 4: 建立 `frontend/src/context/i18n.test.ts` (三項驗收測試)**
-
-```typescript
-import { describe, it, expect, beforeEach } from 'vitest';
-import zhDict from '../locales/zh.json';
-import enDict from '../locales/en.json';
-
-describe('i18n Specifications', () => {
-  beforeEach(() => {
-    document.documentElement.lang = 'zh-Hant';
-  });
-
-  it('1. fallback to key itself when missing in dictionaries', () => {
-    const dict = zhDict as Record<string, string>;
-    const missingKey = 'non_existing_key_xyz';
-    const result = dict[missingKey] || missingKey;
-    expect(result).toBe('non_existing_key_xyz');
-  });
-
-  it('2. pickLabel selects en properly in english mode', () => {
-    const item = { zh: '台灣', en: 'Taiwan' };
-    const lang = 'en';
-    const label = item[lang] || item.zh;
-    expect(label).toBe('Taiwan');
-  });
-
-  it('3. updates document.documentElement.lang upon language change', () => {
-    const switchLang = (l: 'zh' | 'en') => {
-      document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
-    };
-    switchLang('en');
-    expect(document.documentElement.lang).toBe('en');
-    switchLang('zh');
-    expect(document.documentElement.lang).toBe('zh-Hant');
-  });
-});
-```
-
-- [ ] **Step 5: 執行測試驗證**
+- [ ] **Step 7: 跑測試確認通過 ★ checkpoint**
 
 ```bash
-cd frontend && npm test && cd ..
+make test-frontend
 ```
 
-Expected: 全部 PASS。
+Expected: 全部 PASS（format、api、i18n 三個檔）。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add frontend/src/locales/ frontend/src/context/ frontend/src/components/LanguageSwitch.tsx
-git commit -m "feat(frontend): implement lightweight i18n system with LanguageSwitch"
+git add frontend/src/locales/ frontend/src/i18n.tsx frontend/src/i18n.test.tsx frontend/src/theme.ts frontend/src/components/LanguageSwitch.tsx
+git commit -m "feat(frontend): add persisted i18n and theme with tests against the real provider"
 ```
 
 ---
 
-### Task 10a: Design System 與狀態元件 (Loading, Empty, Error) ★ checkpoint
+### Task 10a: Design system、背景場景、Icon、四種狀態畫面 ★ checkpoint
 
 **Files:**
-- Create: `frontend/src/styles/design.css`
-- Create: `frontend/src/components/LoadingSkeleton.tsx`
-- Create: `frontend/src/components/EmptyState.tsx`
-- Create: `frontend/src/components/ErrorMessage.tsx`
-- Modify: `frontend/src/index.css`（引入 design.css）
+- Create: `frontend/src/design.css`（從 POC 抽出 + 補強）
+- Modify: `frontend/src/index.css`
+- Create: `frontend/src/components/Scene.tsx`
+- Create: `frontend/src/components/Icon.tsx`
+- Create: `frontend/src/components/StatePanels.tsx`
+- Modify: `frontend/src/App.tsx`（暫時的預覽頁，Task 11 會整個換掉）
 
 **Interfaces:**
-- `LoadingSkeleton` (超過 8 秒自動換文案)
-- `EmptyState` (含「重設」按鈕與虛線框)
-- `ErrorMessage` (含重試按鈕，分流連線與上游錯誤)
+- Consumes: Task 9 的 `useI18n`
+- Produces:
+  - CSS class：`.glass`、`.search-capsule`、`.search-field`、`.search-label`、`.search-select`、`.btn-primary`、`.btn-secondary`、`.chip.active`、`.rail-btn.active`、`.card-hover`、`.card-img-svg`、`.icon`
+  - `<Scene />`：背景（漸層牆、曲線 SVG、雙色燈光、光暈），毛玻璃 blur 的素材
+  - `<Icon name size? />`，`name` 是 `'search' | 'info' | 'moon' | 'sun' | 'calendar' | 'pin' | 'ticket' | 'refresh' | 'music' | 'tent' | 'masks' | 'frame'`
+  - `IdleState`、`LoadingSkeleton`、`EmptyState({ onReset })`、`ErrorMessage({ kind, onRetry? })`；四個容器各有 `data-testid="state-idle|state-loading|state-empty|state-error"`
 
-- [ ] **Step 1: 建立 `frontend/src/styles/design.css` (對齊 POC v27 毛玻璃)**
+- [ ] **Step 1: 從 POC 抽出 CSS 到 `frontend/src/design.css`**
+
+POC 是唯一的視覺 source of truth，CSS 整段照抄，不手打：
+
+```bash
+python3 - <<'EOF'
+import pathlib, re
+html = pathlib.Path("docs/poc/20260719_155200_ui_design_v27.html").read_text()
+css = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+pathlib.Path("frontend/src/design.css").write_text(css.strip() + "\n")
+EOF
+grep -c "\.glass" frontend/src/design.css
+```
+
+Expected: 數字大於 0。
+
+再把 spec §4.3 要求的補強接在檔尾：
+
+```bash
+cat >> frontend/src/design.css <<'EOF'
+
+/* ---- 以下不是 POC 原文：spec §4.3 的 a11y 補強與 §10 的低配備降級 ---- */
+
+/* 鍵盤 Tab 時看得到焦點 */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* appearance:none 拿掉了原生下拉箭頭，補一個 chevron，否則四個欄位看起來像純文字 */
+.search-field.has-select::after {
+  content: "";
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.1rem;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--text-faint);
+  border-bottom: 2px solid var(--text-faint);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+/* 低階手機掉幀或白屏時的降級：把下面整段取消註解即可（拿掉 blur、面板改成不透明）
+.glass, [data-theme="light"] .glass, .card-hover { backdrop-filter: none; -webkit-backdrop-filter: none; }
+:root, [data-theme="dark"] { --panel: rgba(15, 18, 28, 0.92); }
+[data-theme="light"] { --panel: rgba(255, 255, 255, 0.92); }
+*/
+EOF
+```
+
+- [ ] **Step 2: 更新 `frontend/src/index.css`**
 
 ```css
-:root {
-  --lamp-1: rgba(181, 112, 4, 0.15);
-  --lamp-2: rgba(4, 181, 163, 0.15);
-  --accent: #B57004;
-  --accent-hover: #945B03;
-  --surface-glass: rgba(255, 255, 255, 0.05);
-  --surface-border: rgba(255, 255, 255, 0.12);
-  --skel: rgba(255, 255, 255, 0.06);
-}
+@import "tailwindcss";
+@import "./design.css";
+```
 
-[data-theme="light"] {
-  --lamp-1: rgba(181, 112, 4, 0.08);
-  --lamp-2: rgba(4, 181, 163, 0.08);
-  --accent: #B57004;
-  --accent-hover: #824f02;
-  --surface-glass: rgba(255, 255, 255, 0.65);
-  --surface-border: rgba(0, 0, 0, 0.08);
-  --skel: rgba(0, 0, 0, 0.06);
-}
+- [ ] **Step 3: 建立 `frontend/src/components/Scene.tsx`（POC 第 246–276 行的背景）**
 
-.glass-panel {
-  background: var(--surface-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--surface-border);
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+```tsx
+// 毛玻璃要有東西可以模糊：漸層牆 + 曲線線稿 + 雙色燈光 + 兩顆跨面板光暈（POC v27）
+export function Scene() {
+  return (
+    <div className="scene" aria-hidden="true">
+      <div className="wall" />
+      <svg className="absolute inset-0 w-full h-full opacity-[0.22] pointer-events-none" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="xMidYMid slice">
+        <path d="M-100 850 C300 680 600 800 1000 480 C1300 200 1500 380 1600 -80" stroke="url(#bg-grad-1)" strokeWidth="4.5" strokeLinecap="round" />
+        <path d="M150 950 C450 580 750 850 1150 380" stroke="url(#bg-grad-2)" strokeWidth="2.5" strokeDasharray="10 10" />
+        <circle cx="85%" cy="15%" r="280" stroke="url(#bg-grad-3)" strokeWidth="1.8" />
+        <circle cx="85%" cy="15%" r="180" stroke="url(#bg-grad-3)" strokeWidth="1.2" />
+        <circle cx="20%" cy="80%" r="350" stroke="url(#bg-grad-1)" strokeWidth="1.8" />
+        <circle cx="20%" cy="80%" r="220" stroke="url(#bg-grad-1)" strokeWidth="1.2" strokeDasharray="6 6" />
+        <path d="M500 -50 C700 200 600 400 900 600" stroke="url(#bg-grad-2)" strokeWidth="1.5" />
+        <defs>
+          <linearGradient id="bg-grad-1" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.8" />
+            <stop offset="100%" stopColor="#B57004" stopOpacity="0.1" />
+          </linearGradient>
+          <linearGradient id="bg-grad-2" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#B57004" stopOpacity="0.6" />
+            <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.1" />
+          </linearGradient>
+          <linearGradient id="bg-grad-3" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#B57004" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.1" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div className="lamp-light" />
+      <div className="blob blob-bronze" />
+      <div className="blob blob-cyan" />
+      <div className="floor-shadow" />
+    </div>
+  );
 }
 ```
 
-在 `frontend/src/index.css` 加入 `@import "./styles/design.css";`。
-
-- [ ] **Step 2: 建立 `LoadingSkeleton.tsx`（8 秒切換文案）**
+- [ ] **Step 4: 建立 `frontend/src/components/Icon.tsx`（POC 第 280–292 行，只抄會用到的 12 個）**
 
 ```tsx
-import React, { useState, useEffect } from 'react';
-import { useI18n } from '../context/i18n';
+import type { ReactNode } from 'react';
 
-export const LoadingSkeleton: React.FC = () => {
+export type IconName =
+  | 'search' | 'info' | 'moon' | 'sun' | 'calendar' | 'pin' | 'ticket' | 'refresh'
+  | 'music' | 'tent' | 'masks' | 'frame';
+
+const SHAPES: Record<IconName, ReactNode> = {
+  search: <><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" /></>,
+  moon: <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" />,
+  sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
+  calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M8 3v4M16 3v4M3 10h18" /></>,
+  pin: <><path d="M12 22s7-7.4 7-12.6A7 7 0 0 0 5 9.4C5 14.6 12 22 12 22z" /><circle cx="12" cy="9.5" r="2.3" /></>,
+  ticket: <><path d="M3 9a2 2 0 0 1 0 4v2a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2a2 2 0 0 1 0-4V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z" /><path d="M12 5v14" strokeDasharray="2 3" /></>,
+  refresh: <><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 3v6h-6" /></>,
+  music: <><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></>,
+  tent: <><path d="M19 20L12 4 5 20" /><path d="M12 15L9 20h6z" /></>,
+  masks: <><path d="M4 10c0-4 4-8 8-8s8 4 8 8c0 5-4 10-8 10-4 0-8-5-8-10z" /><path d="M9 9h.01M15 9h.01M12 14c-1 0-2 .5-2 1h4c0-.5-1-1-2-1z" /></>,
+  frame: <><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><path d="M3 9h18M9 21V9" /></>,
+};
+
+// 純裝飾：按鈕的文字或 aria-label 才是給螢幕閱讀器的名字
+export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
+  return (
+    <svg className="icon" style={{ width: size, height: size }} viewBox="0 0 24 24" aria-hidden="true">
+      {SHAPES[name]}
+    </svg>
+  );
+}
+```
+
+- [ ] **Step 5: 建立 `frontend/src/components/StatePanels.tsx`**
+
+```tsx
+import { useEffect, useState } from 'react';
+import type { ErrorKind } from '../api';
+import { useI18n } from '../i18n';
+import { Icon } from './Icon';
+
+const PANEL = 'text-center py-24 px-4 bg-[var(--surface-2)] rounded-3xl border border-[var(--panel-border-dim)] border-dashed mt-4';
+
+// idle 不可以是一片空白：使用者要看得出「還沒搜」和「查無結果」不一樣
+export function IdleState() {
   const { t } = useI18n();
-  const [isSlow, setIsSlow] = useState(false);
+  return (
+    <div data-testid="state-idle" className={PANEL}>
+      <p className="text-[var(--text)] font-bold text-lg mb-2">{t('idle_title')}</p>
+      <p className="text-[var(--text-muted)] text-sm max-w-sm mx-auto">{t('idle_desc')}</p>
+    </div>
+  );
+}
 
+// 超過 8 秒換文案：cache miss 加上游 timeout 最壞 15 秒，要讓使用者知道站沒死
+export function LoadingSkeleton() {
+  const { t } = useI18n();
+  const [slow, setSlow] = useState(false);
   useEffect(() => {
-    const timer = setTimeout(() => setIsSlow(true), 8000);
+    const timer = setTimeout(() => setSlow(true), 8000);
     return () => clearTimeout(timer);
   }, []);
 
   return (
-    <div className="w-full space-y-4 py-8" role="status" aria-busy="true">
-      <p className="text-center text-sm text-white/70 animate-pulse">
-        {isSlow ? t('loading_slow') : t('loading_short')}
-      </p>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="glass-panel rounded-2xl p-5 space-y-4 animate-pulse">
-            <div className="h-40 bg-white/10 rounded-xl" />
-            <div className="h-5 bg-white/10 rounded w-3/4" />
-            <div className="h-4 bg-white/10 rounded w-1/2" />
-            <div className="border-t border-white/10 pt-3 flex justify-between">
-              <div className="h-4 bg-white/10 rounded w-1/4" />
-              <div className="h-4 bg-white/10 rounded w-1/4" />
+    <div data-testid="state-loading">
+      <p role="status" className="text-sm text-[var(--text-muted)] mb-4">{t(slow ? 'loading_slow' : 'loading_short')}</p>
+      <div aria-busy="true" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-3xl bg-[var(--surface-2)] border border-[var(--panel-border-dim)] p-6 animate-pulse space-y-4">
+            <div className="h-32 bg-[var(--skel)] rounded-2xl -m-6 mb-4" />
+            <div className="h-5 bg-[var(--skel)] rounded w-3/4" />
+            <div className="h-4 bg-[var(--skel)] rounded w-1/2" />
+            <div className="h-4 bg-[var(--skel)] rounded w-2/3" />
+            <div className="border-t border-[var(--panel-border-dim)] pt-4 mt-4">
+              <div className="h-4 bg-[var(--skel)] rounded w-1/3" />
             </div>
           </div>
         ))}
       </div>
     </div>
   );
-};
-```
-
-- [ ] **Step 3: 建立 `EmptyState.tsx`**
-
-```tsx
-import React from 'react';
-import { useI18n } from '../context/i18n';
-
-interface EmptyStateProps {
-  onReset: () => void;
 }
 
-export const EmptyState: React.FC<EmptyStateProps> = ({ onReset }) => {
+// 文案叫使用者按「重設」，這顆鈕就必須真的存在
+export function EmptyState({ onReset }: { onReset: () => void }) {
   const { t } = useI18n();
-
   return (
-    <div
-      role="status"
-      className="glass-panel border-dashed border-2 border-white/20 rounded-2xl p-12 text-center max-w-lg mx-auto my-12 space-y-4"
-    >
-      <svg className="w-16 h-16 mx-auto text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+    <div data-testid="state-empty" role="status" className={PANEL}>
+      <svg className="mx-auto mb-5" style={{ width: 80, height: 80 }} viewBox="0 0 100 100" fill="none" stroke="var(--text-faint)" strokeWidth="1.5" aria-hidden="true">
+        <circle cx="44" cy="44" r="26" />
+        <path d="M63 63 L84 84" strokeLinecap="round" />
+        <path d="M44 10 V2 M44 86 v-8" strokeDasharray="2 4" />
+        <path d="M8 44 H16 M72 44 h8" strokeDasharray="2 4" />
       </svg>
-      <h3 className="text-xl font-bold">{t('empty_title')}</h3>
-      <p className="text-sm text-white/60">{t('empty_desc')}</p>
-      <button
-        type="button"
-        onClick={onReset}
-        className="px-6 py-2 rounded-full bg-[#B57004] hover:bg-[#945B03] text-white text-sm font-semibold transition"
-      >
+      <p className="text-[var(--text)] font-bold text-lg mb-2">{t('empty_title')}</p>
+      <p className="text-[var(--text-muted)] text-sm max-w-sm mx-auto mb-6">{t('empty_desc')}</p>
+      <button type="button" onClick={onReset} className="btn-secondary px-6 py-2.5 text-sm font-bold">
         {t('reset')}
       </button>
     </div>
   );
-};
-```
-
-- [ ] **Step 4: 建立 `ErrorMessage.tsx`**
-
-```tsx
-import React from 'react';
-import { useI18n } from '../context/i18n';
-
-interface ErrorMessageProps {
-  message: string;
-  onRetry?: () => void;
 }
 
-export const ErrorMessage: React.FC<ErrorMessageProps> = ({ message, onRetry }) => {
+// client 錯誤（400/404）重試也不會好，所以呼叫端不傳 onRetry
+export function ErrorMessage({ kind, onRetry }: { kind: ErrorKind; onRetry?: () => void }) {
   const { t } = useI18n();
-
   return (
-    <div
-      role="alert"
-      className="glass-panel border border-red-500/30 rounded-2xl p-8 text-center max-w-lg mx-auto my-12 space-y-4 bg-red-950/20"
-    >
-      <div className="w-12 h-12 mx-auto rounded-full bg-red-500/20 flex items-center justify-center text-red-400">
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-      </div>
-      <h3 className="text-lg font-semibold text-red-200">查詢發生異常</h3>
-      <p className="text-sm text-white/70">{message}</p>
+    <div data-testid="state-error" role="alert" className={PANEL}>
+      <svg className="mx-auto mb-5" style={{ width: 80, height: 80 }} viewBox="0 0 100 100" fill="none" stroke="var(--accent)" strokeWidth="1.5" aria-hidden="true">
+        <path d="M50 12 L92 84 L8 84 Z" strokeLinejoin="round" />
+        <path d="M50 38 V60" strokeLinecap="round" />
+        <circle cx="50" cy="72" r="2" fill="var(--accent)" />
+      </svg>
+      <p className="text-[var(--text)] font-bold text-lg mb-2">{t(`error_${kind}_title`)}</p>
+      <p className="text-[var(--text-muted)] text-sm mb-6">{t(`error_${kind}_desc`)}</p>
       {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="px-6 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition border border-white/20"
-        >
-          {t('retry')}
+        <button type="button" onClick={onRetry} className="btn-secondary px-6 py-2.5 text-sm font-bold inline-flex items-center gap-2">
+          <Icon name="refresh" />{t('retry')}
         </button>
       )}
     </div>
   );
-};
+}
 ```
 
-- [ ] **Step 5: 驗證建置無錯誤 ★ checkpoint**
+- [ ] **Step 6: 暫時把 `frontend/src/App.tsx` 換成預覽頁，開瀏覽器看四種狀態 ★ checkpoint**
 
-```bash
-cd frontend && npm run build && cd ..
+```tsx
+import { I18nProvider } from './i18n';
+import { Scene } from './components/Scene';
+import { EmptyState, ErrorMessage, IdleState, LoadingSkeleton } from './components/StatePanels';
+
+// 預覽用，Task 11 會整個換掉
+export function App() {
+  return (
+    <I18nProvider>
+      <Scene />
+      <main className="glass rounded-[40px] p-6 sm:p-10 max-w-5xl mx-auto my-6 text-[var(--text)] space-y-6">
+        <IdleState />
+        <LoadingSkeleton />
+        <EmptyState onReset={() => {}} />
+        <ErrorMessage kind="upstream" onRetry={() => {}} />
+        <ErrorMessage kind="client" />
+      </main>
+    </I18nProvider>
+  );
+}
 ```
 
-Expected: 前端 build 順利通過。
+```bash
+make test-frontend && (cd frontend && npm run build)
+make dev
+```
 
-- [ ] **Step 6: Commit**
+Expected: 測試與 build 都通過。瀏覽器開 `http://localhost:8790`：
+1. 背景看得到曲線線稿與銅色、青色光暈，面板是透亮的毛玻璃。
+2. 五個區塊都看得到；loading 那塊 8 秒後文字換成「第一次查詢比較慢…」。
+3. 在 DevTools console 執行 `document.documentElement.dataset.theme='light'`，淺色主題也是透亮的毛玻璃，不是只換顏色。
+
+看完 Ctrl+C 停掉 `make dev`。
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add frontend/src/styles/ frontend/src/components/
-git commit -m "feat(frontend): implement glassmorphism design system and state components"
+git add frontend/src/design.css frontend/src/index.css frontend/src/components/ frontend/src/App.tsx
+git commit -m "feat(frontend): add POC v27 design system, scene, icons, and four state panels"
 ```
 
 ---
 
-### Task 10b: 活動卡片與列表 (EventCard, EventList) ★ checkpoint
+### Task 10b: EventCard 與 EventList ★ checkpoint
 
 **Files:**
 - Create: `frontend/src/components/EventCard.tsx`
 - Create: `frontend/src/components/EventList.tsx`
+- Modify: `frontend/src/App.tsx`（預覽頁加上假資料卡片）
 
 **Interfaces:**
-- `EventCard`: 區間時間顯示、URL encode 外連、emoji badge 保留、價格格式化。
-- `EventList`: live region (`role="status"`)。
+- Consumes: Task 8 的 `EventItem`、`formatDateRange`、`formatPrice`、`buildGoogleMapUrl`、`buildGoogleSearchUrl`；Task 10a 的 `Icon`
+- Produces: `<EventList events={EventItem[]} />`，結果 grid 有 `data-testid="results-grid"` 與 `role="status"`
 
-- [ ] **Step 1: 建立 `EventCard.tsx`**
+- [ ] **Step 1: 建立 `frontend/src/components/EventCard.tsx`**
 
 ```tsx
-import React from 'react';
-import { EventItem } from '../types';
-import { useI18n } from '../context/i18n';
-import { formatDateRange, formatPrice, buildGoogleMapUrl, buildGoogleSearchUrl } from '../utils/format';
+import type { EventItem } from '../types';
+import { useI18n } from '../i18n';
+import { buildGoogleMapUrl, buildGoogleSearchUrl, formatDateRange, formatPrice } from '../utils/format';
+import { Icon } from './Icon';
 
-export const EventCard: React.FC<{ event: EventItem }> = ({ event }) => {
-  const { lang } = useI18n();
+// 三組 banner 輪流用（POC v27 的三張卡）
+const BANNERS = [
+  {
+    background: 'linear-gradient(135deg,#c2410c,#d97706)',
+    shapes: <><circle cx="248" cy="20" r="38" /><circle cx="248" cy="20" r="24" strokeDasharray="3 5" /><path d="M30 92 L58 44 L86 92 Z" /><path d="M140 20 V44 M128 32 H152" strokeWidth="1.6" /></>,
+  },
+  {
+    background: 'linear-gradient(135deg,#1e3a8a,#3b82f6)',
+    shapes: <><rect x="220" y="18" width="52" height="52" transform="rotate(16 246 44)" /><path d="M20 30 A46 46 0 0 1 66 76" strokeDasharray="3 5" /><path d="M120 84 C150 40 200 96 244 60" strokeDasharray="1 7" strokeLinecap="round" /></>,
+  },
+  {
+    background: 'linear-gradient(135deg,#0d9488,#115e59)',
+    shapes: <><path d="M252 14 C255 34 262 41 282 44 C262 47 255 54 252 74 C249 54 242 47 222 44 C242 41 249 34 252 14 Z" /><circle cx="52" cy="76" r="30" /><circle cx="52" cy="76" r="18" strokeDasharray="3 5" /><path d="M140 26 L166 70 L114 70 Z" /></>,
+  },
+];
+
+export function EventCard({ event, index }: { event: EventItem; index: number }) {
+  const { lang, t } = useI18n();
+  const banner = BANNERS[index % BANNERS.length];
 
   return (
-    <article className="glass-panel rounded-2xl overflow-hidden hover:border-[#B57004]/50 transition duration-300 flex flex-col group">
-      {/* 頂部裝飾幾何橫幅 */}
-      <div className="h-32 bg-gradient-to-br from-[#B57004]/20 to-teal-900/20 relative p-4 flex justify-between items-start">
-        <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-black/40 backdrop-blur-md text-amber-300 border border-amber-500/30">
-          🔥 熱賣中
-        </span>
-        <svg className="w-16 h-16 text-white/10 absolute -right-2 -bottom-2 group-hover:scale-110 transition duration-500" viewBox="0 0 100 100" fill="currentColor">
-          <circle cx="50" cy="50" r="40" stroke="currentColor" strokeWidth="2" fill="none" />
+    <article className="card-hover group rounded-3xl overflow-hidden bg-[var(--surface-2)] border border-[var(--panel-border-dim)] transition-all duration-300">
+      <div className="h-32 relative flex items-end p-4 overflow-hidden" style={{ background: banner.background }}>
+        <svg className="card-img-svg absolute inset-0 w-full h-full" viewBox="0 0 300 128" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="1.2" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          {banner.shapes}
         </svg>
-      </div>
-
-      {/* 活動主體 */}
-      <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-        <div className="space-y-2">
-          <h3 className="font-bold text-lg leading-snug group-hover:text-[#B57004] transition">
-            {event.title}
-          </h3>
-          <p className="text-xs text-white/60">
-            📅 {formatDateRange(event.start_time, event.end_time)}
-          </p>
-          <p className="text-xs text-white/80">
-            📍 <a
-              href={buildGoogleMapUrl(event.location, event.address)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-[#B57004] transition"
-            >
-              {event.location}
-            </a>
-          </p>
-        </div>
-
-        {/* 底部票價與搜尋 */}
-        <div className="border-t border-white/10 pt-3 flex items-center justify-between">
-          <span className="text-sm font-semibold text-amber-400">
-            {formatPrice(event.price, lang === 'en')}
+        {/* 只有 MoC 標示售票中（onSales = Y）才顯示，不是每張卡都熱賣 */}
+        {event.onSales && (
+          <span className="relative text-xs font-semibold bg-black/50 backdrop-blur-md text-white px-3 py-1.5 rounded-full shadow-sm">
+            {t('on_sales')}
           </span>
+        )}
+      </div>
+      <div className="p-6">
+        <h3 className="font-bold text-lg leading-snug mb-3 text-[var(--text)] group-hover:text-[var(--link)] transition-colors">
+          {event.title}
+        </h3>
+        <p className="text-sm text-[var(--text-muted)] mb-2 flex items-center gap-2">
+          <Icon name="calendar" size={16} />{formatDateRange(event.startTime, event.endTime)}
+        </p>
+        <a
+          href={buildGoogleMapUrl(event.location, event.locationName)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm hover:underline flex items-start gap-2 mb-5"
+          style={{ color: 'var(--link)' }}
+        >
+          <Icon name="pin" size={16} />
+          <span className="leading-relaxed">{event.locationName ? `${event.locationName}・${event.location}` : event.location}</span>
+        </a>
+        <div className="flex items-center justify-between border-t border-[var(--panel-border-dim)] pt-4 mt-2 gap-3">
+          <p className="text-sm font-bold text-[var(--text)]">{formatPrice(event.price, lang)}</p>
           <a
             href={buildGoogleSearchUrl(event.title)}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white font-medium transition"
+            className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-full bg-[var(--surface-2)] text-[var(--text)] hover:bg-white/10 transition"
           >
-            Google 搜尋
+            {t('google_search')}
           </a>
         </div>
       </div>
     </article>
   );
-};
+}
 ```
 
-- [ ] **Step 2: 建立 `EventList.tsx`**
+- [ ] **Step 2: 建立 `frontend/src/components/EventList.tsx`**
 
 ```tsx
-import React from 'react';
-import { EventItem } from '../types';
+import type { EventItem } from '../types';
 import { EventCard } from './EventCard';
 
-interface EventListProps {
-  events: EventItem[];
-}
-
-export const EventList: React.FC<EventListProps> = ({ events }) => {
+// role="status"：結果出來時螢幕閱讀器會播報，不然按了搜尋像沒反應
+export function EventList({ events }: { events: EventItem[] }) {
   return (
-    <section role="status" className="w-full space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {events.map((event) => (
-          <EventCard key={event.id} event={event} />
-        ))}
-      </div>
-    </section>
+    <div data-testid="results-grid" role="status" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {events.map((event, index) => <EventCard key={event.id} event={event} index={index} />)}
+    </div>
   );
-};
+}
 ```
 
-- [ ] **Step 3: 驗證建置 ★ checkpoint**
+- [ ] **Step 3: 預覽頁加上三張假資料卡片，開瀏覽器看 ★ checkpoint**
+
+在 Task 10a 的預覽 `App.tsx` 加 import 與一個 `<EventList>`（放在 `<IdleState />` 前面）：
+
+```tsx
+import { EventList } from './components/EventList';
+import type { EventItem } from './types';
+
+const SAMPLE: EventItem[] = [
+  { id: 'a', title: '臺北當代藝術館：光影展', startTime: '2026/01/01 10:00:00', endTime: '2026/12/31 18:00:00', location: '臺北市大同區長安西路39號', locationName: '臺北當代藝術館', onSales: true, price: '300' },
+  { id: 'b', title: '國家音樂廳：夏夜交響', startTime: '2026/07/22 19:30:00', endTime: '2026/07/22 21:30:00', location: '臺北市中正區中山南路21-1號', locationName: '國家音樂廳', onSales: false, price: '洽詢主辦單位' },
+  { id: 'c', title: '松山文創園區：手作市集 & 工作坊 #3', startTime: '2026/07/25 10:00:00', endTime: null, location: '臺北市信義區光復南路133號', locationName: '', onSales: false, price: '0' },
+];
+// JSX 內：<EventList events={SAMPLE} />
+```
 
 ```bash
-cd frontend && npm run build && cd ..
+make test-frontend && (cd frontend && npm run build)
+make dev
 ```
 
-Expected: 前端 build 通過。
+Expected: 瀏覽器 `http://localhost:8790`：
+1. 只有第一張卡有「🔥 熱賣中」。
+2. 時間分別是 `2026/01/01 – 2026/12/31`、`07/22 19:30–21:30`、`2026/07/25 10:00`。
+3. 票價分別是 `$300`、`洽詢主辦單位`、`免費`。
+4. 點第三張的 Google 搜尋，新分頁的搜尋字是完整的「松山文創園區：手作市集 & 工作坊 #3」，沒有被 `&` 或 `#` 截斷。
+5. 縮到手機寬度是單欄，桌機三欄；hover 卡片時 banner 的線條慢慢放大。
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add frontend/src/components/EventCard.tsx frontend/src/components/EventList.tsx
-git commit -m "feat(frontend): implement EventCard and EventList with accessible live regions"
+git add frontend/src/components/EventCard.tsx frontend/src/components/EventList.tsx frontend/src/App.tsx
+git commit -m "feat(frontend): add EventCard with on-sale badge and date ranges, and EventList"
 ```
 
 ---
 
-### Task 10c: 搜尋卡 (SearchCapsule, CategoryChips) ★ checkpoint
+### Task 10c: 國家選擇器、搜尋膠囊、類別 chips ★ checkpoint
 
 **Files:**
+- Create: `frontend/src/components/CountryPicker.tsx`
+- Create: `frontend/src/components/SearchForm.tsx`
 - Create: `frontend/src/components/CategoryChips.tsx`
-- Create: `frontend/src/components/SearchCapsule.tsx`
+- Modify: `frontend/src/App.tsx`（預覽頁加上這三個元件）
 
 **Interfaces:**
-- `CategoryChips`: 4 個快捷 chip (展覽、表演/戲劇、音樂、市集)，`aria-pressed`，點擊直接觸發搜尋。
-- `SearchCapsule`: Airbnb 風格膠囊搜尋列，CSS chevron 下拉，送出鈕。
+- Consumes: Task 8 的 `Country`、`SearchForm`、`LabeledOption`；Task 10a 的 `Icon`
+- Produces:
+  - `<CountryPicker countries active onPick(code) />`：日本、韓國是「尚未開放」chip（`aria-disabled`，不用 `disabled`）
+  - `<SearchForm form country ready loading onChange(patch) onSearch onReset />`：搜尋鈕 `data-testid="search-button"`；`ready=false`（國家清單還沒載完）時送出鈕 disabled
+  - `<CategoryChips options selected onPick(value) />`：容器 `data-testid="category-chips"`，chip 點了直接觸發搜尋
 
-- [ ] **Step 1: 建立 `CategoryChips.tsx`**
+- [ ] **Step 1: 建立 `frontend/src/components/CountryPicker.tsx`**
 
 ```tsx
-import React from 'react';
-import { LabeledOption } from '../types';
-import { useI18n } from '../context/i18n';
+import type { Country } from '../types';
+import { useI18n } from '../i18n';
 
-// POC v27 四個快捷類別對齊: 音樂(1)、戲劇/表演(2)、展覽(6)、市集(17)
-const SHORTCUT_IDS = ['6', '1', '2', '17'];
+// 還沒有 provider 的國家：純視覺降權，不寫「即將推出」字樣（spec §4）
+const COMING_SOON = [
+  { code: 'JP', name: { zh: '日本', en: 'Japan' } },
+  { code: 'KR', name: { zh: '韓國', en: 'Korea' } },
+];
 
-export const CategoryChips: React.FC<{
-  categories: LabeledOption[];
-  selectedCategory: string;
-  onSelectAndSearch: (catId: string) => void;
-}> = ({ categories, selectedCategory, onSelectAndSearch }) => {
-  const { pickLabel } = useI18n();
+export function CountryPicker({ countries, active, onPick }: {
+  countries: Country[];
+  active: string;
+  onPick: (code: string) => void;
+}) {
+  const { label, t } = useI18n();
+  return (
+    <div className="flex items-center gap-2 self-start md:self-auto bg-[var(--surface-2)] p-1.5 rounded-full border border-[var(--panel-border-dim)] shadow-sm">
+      {countries.map((c) => (
+        <button
+          key={c.code}
+          type="button"
+          aria-pressed={c.code === active}
+          onClick={() => onPick(c.code)}
+          className={`shrink-0 flex items-center gap-2 px-4 py-1.5 text-sm rounded-full ${c.code === active ? 'btn-primary shadow' : 'btn-secondary'}`}
+        >
+          <span className="h-5 w-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold">{c.code.toUpperCase()}</span>
+          {label(c.name)}
+        </button>
+      ))}
+      {COMING_SOON.map((c) => (
+        // aria-disabled 而不是 disabled：disabled 的按鈕鍵盤 focus 不到，螢幕閱讀器也聽不到「尚未開放」
+        <button
+          key={c.code}
+          type="button"
+          aria-disabled="true"
+          title={t('coming_soon')}
+          aria-label={`${label(c.name)}（${t('coming_soon')}）`}
+          onClick={(e) => e.preventDefault()}
+          className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full text-sm text-[var(--text-muted)] cursor-not-allowed opacity-60"
+        >
+          <span className="h-5 w-5 rounded-full bg-[var(--panel-border-dim)] flex items-center justify-center text-[10px] font-bold">{c.code}</span>
+          {label(c.name)}
+        </button>
+      ))}
+    </div>
+  );
+}
+```
 
-  const shortcutCats = categories.filter((c) => SHORTCUT_IDS.includes(String(c.id)));
+- [ ] **Step 2: 建立 `frontend/src/components/SearchForm.tsx`**
+
+```tsx
+import type { Country, LabeledOption, SearchForm as Form } from '../types';
+import { useI18n } from '../i18n';
+import { Icon } from './Icon';
+
+const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+
+function Field({ id, title, value, options, onChange }: {
+  id: string;
+  title: string;
+  value: string;
+  options: { value: string; text: string }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="search-field has-select">
+      <label htmlFor={id} className="search-label">{title}</label>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="search-select pr-6">
+        {options.map((o) => <option key={o.value} value={o.value} className="text-black">{o.text}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// <select> 年 + 月，不用 <input type="month">：桌面 Firefox / Safari 不支援，會退化成純文字框
+export function SearchForm({ form, country, ready, loading, onChange, onSearch, onReset }: {
+  form: Form;
+  country: Country;
+  ready: boolean;
+  loading: boolean;
+  onChange: (patch: Partial<Form>) => void;
+  onSearch: () => void;
+  onReset: () => void;
+}) {
+  const { t, label } = useI18n();
+  const toOptions = (list: LabeledOption[]) => list.map((o) => ({ value: String(o.value), text: label(o) }));
+  const thisYear = new Date().getFullYear();
+  const years = [thisYear, thisYear + 1].map((y) => ({ value: String(y), text: String(y) }));
 
   return (
-    <div className="flex flex-wrap gap-2 py-2" role="group" aria-label="快捷類別選單">
-      {shortcutCats.map((cat) => {
-        const isSelected = String(cat.id) === String(selectedCategory);
+    <form
+      onSubmit={(e) => { e.preventDefault(); onSearch(); }}
+      className="search-capsule mb-4 flex-col sm:flex-row rounded-3xl sm:rounded-full"
+    >
+      <Field id="f-location" title={t('location')} value={form.location} options={toOptions(country.locations)} onChange={(v) => onChange({ location: v })} />
+      <Field id="f-category" title={t('category')} value={form.category} options={toOptions(country.categories)} onChange={(v) => onChange({ category: v })} />
+      <Field id="f-year" title={t('year')} value={form.year} options={years} onChange={(v) => onChange({ year: v })} />
+      <Field id="f-month" title={t('month')} value={form.month} options={MONTHS.map((m) => ({ value: m, text: m }))} onChange={(v) => onChange({ month: v })} />
+      <div className="p-3 sm:p-2 flex items-center justify-center gap-2">
+        <button type="button" onClick={onReset} className="btn-secondary h-12 px-4 text-sm">{t('reset')}</button>
+        {/* 國家清單載完前不能送出，不然會打出 /api/v1//events */}
+        <button
+          type="submit"
+          data-testid="search-button"
+          disabled={!ready || loading}
+          aria-label={t('search')}
+          className="btn-primary w-full sm:w-12 h-12 rounded-2xl sm:rounded-full flex items-center justify-center text-sm gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Icon name="search" />
+          <span className="sm:hidden font-semibold">{t('search')}</span>
+        </button>
+      </div>
+    </form>
+  );
+}
+```
+
+- [ ] **Step 3: 建立 `frontend/src/components/CategoryChips.tsx`**
+
+```tsx
+import type { LabeledOption } from '../types';
+import { useI18n } from '../i18n';
+import { Icon, type IconName } from './Icon';
+
+// 四個快捷 chip，對齊 POC 的四個 icon。MoC 沒有「市集」類別，帳篷 icon 配演唱會（17）
+const SHORTCUTS: { value: string; icon: IconName }[] = [
+  { value: '6', icon: 'frame' },    // 展覽
+  { value: '2', icon: 'masks' },    // 戲劇
+  { value: '1', icon: 'music' },    // 音樂
+  { value: '17', icon: 'tent' },    // 演唱會
+];
+
+export function CategoryChips({ options, selected, onPick }: {
+  options: LabeledOption[];
+  selected: string;
+  onPick: (value: string) => void;
+}) {
+  const { t, label } = useI18n();
+  return (
+    <div data-testid="category-chips" role="group" aria-label={t('quick_categories')} className="flex flex-wrap gap-2.5 mb-8">
+      {SHORTCUTS.map(({ value, icon }) => {
+        // 兩邊都轉字串再比，後端把 value 改成數字也不會整排消失
+        const option = options.find((o) => String(o.value) === value);
+        if (!option) return null;
+        const isActive = String(selected) === value;
         return (
           <button
-            key={cat.id}
+            key={value}
             type="button"
-            aria-pressed={isSelected}
-            onClick={() => onSelectAndSearch(String(cat.id))}
-            className={`px-4 py-2 rounded-full text-xs font-semibold transition backdrop-blur-md flex items-center space-x-1.5 ${
-              isSelected
-                ? 'bg-[#B57004] text-white shadow-lg shadow-amber-950/40'
-                : 'glass-panel text-white/80 hover:bg-white/10 hover:text-white'
-            }`}
+            aria-pressed={isActive}
+            onClick={() => onPick(value)}
+            className={`chip flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium ${isActive ? 'btn-primary active' : 'btn-secondary'}`}
           >
-            <span>{pickLabel(cat)}</span>
+            <Icon name={icon} size={14} />{label(option)}
           </button>
         );
       })}
     </div>
   );
-};
+}
 ```
 
-- [ ] **Step 2: 建立 `SearchCapsule.tsx`**
+- [ ] **Step 4: 預覽頁接上真的 `/api/v1/countries`，開瀏覽器看 ★ checkpoint**
+
+把預覽 `App.tsx` 換成下面這版（Task 11 會再整個換掉）：
 
 ```tsx
-import React from 'react';
-import { LabeledOption, SearchQuery } from '../types';
-import { useI18n } from '../context/i18n';
+import { useEffect, useState } from 'react';
+import { fetchCountries } from './api';
+import { CategoryChips } from './components/CategoryChips';
+import { CountryPicker } from './components/CountryPicker';
+import { Scene } from './components/Scene';
+import { SearchForm } from './components/SearchForm';
+import { I18nProvider } from './i18n';
+import type { Country, SearchForm as Form } from './types';
+import { defaultForm } from './utils/format';
 
-interface SearchCapsuleProps {
-  query: SearchQuery;
-  categories: LabeledOption[];
-  locations: LabeledOption[];
-  onChange: (updates: Partial<SearchQuery>) => void;
-  onSearch: () => void;
-  isLoading: boolean;
+function Preview() {
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [form, setForm] = useState<Form | null>(null);
+  useEffect(() => {
+    fetchCountries().then((list) => { setCountries(list); setForm(defaultForm(list[0], new Date())); });
+  }, []);
+  if (!form) return <p>loading countries…</p>;
+  const country = countries[0];
+  return (
+    <main className="glass rounded-[40px] p-6 sm:p-10 max-w-5xl mx-auto my-6 text-[var(--text)]">
+      <CountryPicker countries={countries} active={form.country} onPick={() => {}} />
+      <pre className="text-xs my-4">{JSON.stringify(form)}</pre>
+      <SearchForm form={form} country={country} ready loading={false}
+        onChange={(p) => setForm({ ...form, ...p })} onSearch={() => console.log('search', form)} onReset={() => setForm(defaultForm(country, new Date()))} />
+      <CategoryChips options={country.categories} selected={form.category} onPick={(v) => setForm({ ...form, category: v })} />
+    </main>
+  );
 }
 
-export const SearchCapsule: React.FC<SearchCapsuleProps> = ({
-  query,
-  categories,
-  locations,
-  onChange,
-  onSearch,
-  isLoading,
-}) => {
-  const { t, pickLabel } = useI18n();
-
-  const currentYear = new Date().getFullYear();
-  const years = [currentYear, currentYear + 1];
-  const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSearch();
-      }}
-      className="glass-panel rounded-3xl p-3 md:p-2 shadow-2xl flex flex-col md:flex-row items-center gap-2 max-w-4xl mx-auto"
-    >
-      {/* 地區 */}
-      <div className="flex-1 w-full px-4 py-2 border-b md:border-b-0 md:border-r border-white/10">
-        <label htmlFor="loc-select" className="block text-[10px] uppercase font-bold text-white/50 tracking-wider">
-          {t('location')}
-        </label>
-        <select
-          id="loc-select"
-          value={query.location}
-          onChange={(e) => onChange({ location: e.target.value })}
-          className="w-full bg-transparent text-sm font-medium text-white focus:outline-none cursor-pointer py-1"
-        >
-          {locations.map((loc) => (
-            <option key={loc.id} value={loc.id} className="bg-slate-900 text-white">
-              {pickLabel(loc)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* 類別 */}
-      <div className="flex-1 w-full px-4 py-2 border-b md:border-b-0 md:border-r border-white/10">
-        <label htmlFor="cat-select" className="block text-[10px] uppercase font-bold text-white/50 tracking-wider">
-          {t('category')}
-        </label>
-        <select
-          id="cat-select"
-          value={query.category}
-          onChange={(e) => onChange({ category: e.target.value })}
-          className="w-full bg-transparent text-sm font-medium text-white focus:outline-none cursor-pointer py-1"
-        >
-          {categories.map((cat) => (
-            <option key={cat.id} value={cat.id} className="bg-slate-900 text-white">
-              {pickLabel(cat)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* 年份與月份 */}
-      <div className="flex-1 w-full px-4 py-2 flex gap-2 border-b md:border-b-0 md:border-r border-white/10">
-        <div className="flex-1">
-          <label htmlFor="yr-select" className="block text-[10px] uppercase font-bold text-white/50 tracking-wider">
-            {t('year')}
-          </label>
-          <select
-            id="yr-select"
-            value={query.year}
-            onChange={(e) => onChange({ year: e.target.value })}
-            className="w-full bg-transparent text-sm font-medium text-white focus:outline-none cursor-pointer py-1"
-          >
-            {years.map((y) => (
-              <option key={y} value={y} className="bg-slate-900 text-white">
-                {y}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex-1">
-          <label htmlFor="mo-select" className="block text-[10px] uppercase font-bold text-white/50 tracking-wider">
-            {t('month')}
-          </label>
-          <select
-            id="mo-select"
-            value={query.month}
-            onChange={(e) => onChange({ month: e.target.value })}
-            className="w-full bg-transparent text-sm font-medium text-white focus:outline-none cursor-pointer py-1"
-          >
-            {months.map((m) => (
-              <option key={m} value={m} className="bg-slate-900 text-white">
-                {m}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* 搜尋按鈕 */}
-      <div className="w-full md:w-auto p-2">
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="w-full md:w-auto px-8 py-3.5 rounded-2xl bg-[#B57004] hover:bg-[#945B03] text-white font-bold text-sm transition flex items-center justify-center space-x-2 shadow-lg shadow-amber-950/40 disabled:opacity-50"
-        >
-          <span>{t('search')}</span>
-        </button>
-      </div>
-    </form>
-  );
-};
+export function App() {
+  return <I18nProvider><Scene /><Preview /></I18nProvider>;
+}
 ```
 
-- [ ] **Step 3: 驗證建置 ★ checkpoint**
-
 ```bash
-cd frontend && npm run build && cd ..
+make test-frontend && (cd frontend && npm run build)
+make dev
 ```
 
-Expected: 前端 build 通過。
+Expected: 瀏覽器 `http://localhost:8790`：
+1. 地區下拉有 20 個選項（含宜蘭、連江），類別 12 個，預設「臺北 / 展覽 / 今年 / 本月」。
+2. 四個欄位右側都有 chevron 箭頭。
+3. 四個 chip（展覽、戲劇、音樂、演唱會）各有 icon；點一個，它變成銅色 active，上方 JSON 的 `category` 跟著變。
+4. 按 Tab 能逐一聚焦到每個欄位與按鈕，看得到銅色外框；日本、韓國也能被 focus 到，滑鼠移上去顯示「尚未開放」。
+5. 按「重設」四個欄位回到預設值。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/src/components/CategoryChips.tsx frontend/src/components/SearchCapsule.tsx
-git commit -m "feat(frontend): implement SearchCapsule and CategoryChips"
+git add frontend/src/components/CountryPicker.tsx frontend/src/components/SearchForm.tsx frontend/src/components/CategoryChips.tsx frontend/src/App.tsx
+git commit -m "feat(frontend): add country picker, search capsule with reset, and category chips"
 ```
 
 ---
 
-### Task 11: App 組裝 + About 頁 (E2E 手動驗收) ★ checkpoint
+### Task 11: App 組裝 + About 頁（全流程手動 E2E）★ checkpoint
 
 **Files:**
 - Create: `frontend/src/components/About.tsx`
-- Modify: `frontend/src/App.tsx`
-- Create: `frontend/src/App.test.tsx`
+- Modify: `frontend/src/App.tsx`（正式版，取代預覽頁）
 
 **Interfaces:**
-- SPA 狀態管理：搜尋 abort controller 防止 race condition、瀏覽器 history `pushState`/`popstate`。
-- 全流程手動 E2E 驗證。
+- Consumes: Task 8–10c 的全部元件、`fetchCountries`、`searchEvents`、`errorKind`、`useTheme`
+- Produces: 完整 SPA。狀態機如下：
 
-- [ ] **Step 1: 建立 `frontend/src/components/About.tsx`**
-
-```tsx
-import React from 'react';
-
-export const About: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  return (
-    <div className="glass-panel rounded-3xl p-8 max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center justify-between border-b border-white/10 pb-4">
-        <h2 className="text-2xl font-bold">關於 Culture Event Finder</h2>
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-xs px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 transition"
-        >
-          返回搜尋
-        </button>
-      </div>
-      <div className="space-y-4 text-sm text-white/80 leading-relaxed">
-        <p>
-          本專案旨在提供台灣各縣市文化活動的快速檢索工具，資料來源為文化部 Open Data API。
-        </p>
-        <div className="border border-white/10 rounded-xl p-4 bg-white/5 space-y-2">
-          <h4 className="font-semibold text-amber-400">Tech Stack</h4>
-          <ul className="list-disc list-inside space-y-1 text-xs text-white/70">
-            <li>Frontend: React 18, TypeScript, Vite, Tailwind CSS</li>
-            <li>Backend: Python 3.13, Django 5.2 LTS, WhiteNoise, gunicorn</li>
-            <li>Deployment: Render Free Web Service (Docker container)</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-};
+```
+            載入 countries
+                 │
+      ┌──── 失敗 ┴ 成功 ────┐
+      ▼                     ▼
+ loadError            status = idle
+ (重試 → 重載 countries)     │ 按搜尋 / 點 chip / 重設
+                            ▼
+                     status = loading ──(新搜尋先 abort 舊的)
+                ┌───────────┼────────────┐
+                ▼           ▼            ▼
+             results      empty        error
+                                  (重試 → 用同一組條件重搜)
 ```
 
-- [ ] **Step 2: 完整組裝 `frontend/src/App.tsx`**
+- [ ] **Step 1: 建立 `frontend/src/components/About.tsx`（v1 tech stack 表的內容）**
 
 ```tsx
-import React, { useState, useEffect, useRef } from 'react';
-import { I18nProvider, useI18n } from './context/i18n';
-import { LanguageSwitch } from './components/LanguageSwitch';
-import { SearchCapsule } from './components/SearchCapsule';
-import { CategoryChips } from './components/CategoryChips';
-import { EventList } from './components/EventList';
-import { LoadingSkeleton } from './components/LoadingSkeleton';
-import { EmptyState } from './components/EmptyState';
-import { ErrorMessage } from './components/ErrorMessage';
+import { useI18n } from '../i18n';
+
+const STACK = [
+  ['Django 5.2 LTS', 'Backend'],
+  ['uv', 'Python dependencies'],
+  ['toolkitsy', 'Logging'],
+  ['React + TypeScript', 'Frontend'],
+  ['Vite', 'Frontend build tool'],
+  ['Tailwind CSS', 'Styling'],
+  ['pytest', 'Backend tests'],
+  ['Vitest', 'Frontend tests'],
+  ['Render', 'Hosting'],
+];
+
+export function About() {
+  const { t } = useI18n();
+  return (
+    <section className="glass rounded-[40px] p-6 sm:p-10 shadow-2xl">
+      <h2 className="text-2xl font-bold mb-5 text-[var(--text)]">{t('about_title')}</h2>
+      <p className="text-base text-[var(--text-muted)] leading-relaxed mb-8 max-w-2xl">{t('about_desc')}</p>
+      <h3 className="font-bold text-lg mb-4 text-[var(--text)]">Tech Stack</h3>
+      <div className="rounded-3xl overflow-hidden mb-8 border border-[var(--panel-border-dim)] divide-y divide-[var(--panel-border-dim)] max-w-2xl">
+        {STACK.map(([name, role], i) => (
+          <div key={name} className={`flex p-4 text-sm ${i % 2 === 0 ? 'bg-[var(--surface-2)]' : ''}`}>
+            <span className="w-48 font-bold text-[var(--text)]">{name}</span>
+            <span className="text-[var(--text-muted)]">{role}</span>
+          </div>
+        ))}
+      </div>
+      <p className="text-sm font-semibold text-[var(--text-muted)] pt-4 border-t border-[var(--panel-border-dim)]">
+        {t('about_author')}：
+        <a href="https://github.com/shyinlim/culture_event_finder_v2" target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: 'var(--link)' }}>
+          GitHub
+        </a>
+      </p>
+    </section>
+  );
+}
+```
+
+- [ ] **Step 2: 正式版 `frontend/src/App.tsx`**
+
+```tsx
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { errorKind, fetchCountries, searchEvents, type ErrorKind } from './api';
 import { About } from './components/About';
-import { EventItem, LabeledOption, SearchQuery } from './types';
-import { fetchCategories, fetchLocations, searchEvents } from './api/client';
+import { CategoryChips } from './components/CategoryChips';
+import { CountryPicker } from './components/CountryPicker';
+import { EventList } from './components/EventList';
+import { Icon } from './components/Icon';
+import { LanguageSwitch } from './components/LanguageSwitch';
+import { Scene } from './components/Scene';
+import { SearchForm } from './components/SearchForm';
+import { EmptyState, ErrorMessage, IdleState, LoadingSkeleton } from './components/StatePanels';
+import { I18nProvider, useI18n } from './i18n';
+import { useTheme } from './theme';
+import type { Country, EventItem, SearchForm as Form } from './types';
+import { defaultForm, findLabel } from './utils/format';
+
+type View = 'search' | 'about';
+type Status = 'idle' | 'loading' | 'results' | 'empty' | 'error';
 
 function MainApp() {
-  const { t } = useI18n();
-  const [view, setView] = useState<'search' | 'about'>('search');
+  const { t, label } = useI18n();
+  const { theme, toggleTheme } = useTheme();
 
-  const [categories, setCategories] = useState<LabeledOption[]>([]);
-  const [locations, setLocations] = useState<LabeledOption[]>([]);
-
-  const now = new Date();
-  const defaultQuery: SearchQuery = {
-    country: 'tw',
-    category: '6', // 預設展覽
-    location: '臺北',
-    year: String(now.getFullYear()),
-    month: String(now.getMonth() + 1).padStart(2, '0'),
-  };
-
-  const [query, setQuery] = useState<SearchQuery>(defaultQuery);
+  const [view, setView] = useState<View>('search');
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [loadError, setLoadError] = useState<ErrorKind | null>(null);   // 錯誤來源 1：countries
+  const [form, setForm] = useState<Form | null>(null);
+  const [status, setStatus] = useState<Status>('idle');
+  const [searchError, setSearchError] = useState<ErrorKind>('transient'); // 錯誤來源 2：搜尋
   const [events, setEvents] = useState<EventItem[]>([]);
-  const [status, setStatus] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle');
-  const [errorMessage, setErrorMessage] = useState('');
+  const [searched, setSearched] = useState<Form | null>(null);           // 結果對應的條件（計數列與重試用）
+  const searchCtrl = useRef<AbortController | null>(null);
 
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const country = countries.find((c) => c.code === form?.country);
 
-  // 初始化載入類別與地點
-  useEffect(() => {
-    fetchCategories('tw').then(setCategories).catch(console.error);
-    fetchLocations('tw').then(setLocations).catch(console.error);
-  }, []);
-
-  // 監聽 popstate 支援瀏覽器返回
-  useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      if (e.state?.view) {
-        setView(e.state.view);
-      } else {
-        setView('search');
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
-  const navigateTo = (newView: 'search' | 'about') => {
-    setView(newView);
-    window.history.pushState({ view: newView }, '', window.location.pathname);
-  };
-
-  const handleSearch = (customQuery?: SearchQuery) => {
-    const targetQuery = customQuery || query;
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const abortCtrl = new AbortController();
-    abortControllerRef.current = abortCtrl;
-
-    setStatus('loading');
-    setErrorMessage('');
-
-    const monthStr = `${targetQuery.year}-${targetQuery.month}`;
-    searchEvents(targetQuery.country, targetQuery.category, targetQuery.location, monthStr, abortCtrl.signal)
-      .then((res) => {
-        setEvents(res.events);
-        setStatus(res.events.length > 0 ? 'idle' : 'empty');
+  // ---- 載入國家清單（下拉選單的資料來源）----
+  const loadCountries = useCallback((signal?: AbortSignal) => {
+    setLoadError(null);
+    fetchCountries(signal)
+      .then((list) => {
+        setCountries(list);
+        setForm(defaultForm(list[0], new Date()));
       })
       .catch((err) => {
-        if (err.name === 'AbortError') return;
+        if (err.name !== 'AbortError') setLoadError(errorKind(err));
+      });
+  }, []);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    loadCountries(ctrl.signal);
+    return () => ctrl.abort();
+  }, [loadCountries]);
+
+  // ---- 搜尋：每次開一個新的 AbortController，先取消上一個，避免慢的舊結果蓋掉新的 ----
+  const runSearch = (query: Form) => {
+    searchCtrl.current?.abort();
+    const ctrl = new AbortController();
+    searchCtrl.current = ctrl;
+    setStatus('loading');
+    searchEvents(query, ctrl.signal)
+      .then((res) => {
+        setEvents(res.events);
+        setSearched(query);
+        setStatus(res.events.length > 0 ? 'results' : 'empty');
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return;   // 被新的搜尋取消，不寫 state
+        setSearched(query);
+        setSearchError(errorKind(err));
         setStatus('error');
-        setErrorMessage(err.message || '查詢發生未預期的錯誤');
       });
   };
 
-  const handleShortcutSelect = (catId: string) => {
-    const updated = { ...query, category: catId };
-    setQuery(updated);
-    handleSearch(updated);
+  const pickCategory = (value: string) => {
+    if (!form) return;
+    const next = { ...form, category: value };
+    setForm(next);
+    runSearch(next);   // 快捷 chip 一點就搜，只改 state 會讓人以為篩選壞了
   };
 
-  const handleReset = () => {
-    setQuery(defaultQuery);
-    handleSearch(defaultQuery);
+  const pickCountry = (code: string) => {
+    const next = countries.find((c) => c.code === code);
+    if (next) setForm(defaultForm(next, new Date()));   // 換國家時地區與類別重設
   };
+
+  const reset = () => {
+    if (!country) return;
+    const next = defaultForm(country, new Date());
+    setForm(next);
+    runSearch(next);
+  };
+
+  // ---- 畫面切換進 history，手機返回鍵才不會直接離站 ----
+  const navigate = (next: View) => {
+    if (next === view) return;
+    window.history.pushState({ view: next }, '');
+    setView(next);
+  };
+
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => setView(e.state?.view === 'about' ? 'about' : 'search');
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  // ---- 結果計數列：條件寫出來，使用者才知道看的是哪個類別，不會誤以為是全部 ----
+  const summary = searched && country
+    ? t('result_count', {
+        place: label(findLabel(country.locations, searched.location) ?? { zh: searched.location, en: searched.location }),
+        category: label(findLabel(country.categories, searched.category) ?? { zh: searched.category, en: searched.category }),
+        ym: `${searched.year}/${searched.month}`,
+        count: events.length,
+      })
+    : '';
+
+  const navButton = (target: View, icon: 'search' | 'info', size: string) => (
+    <button
+      type="button"
+      onClick={() => navigate(target)}
+      aria-label={t(target === 'search' ? 'nav_search' : 'nav_about')}
+      aria-current={view === target ? 'page' : undefined}
+      className={`rail-btn ${view === target ? 'active' : ''} ${size} rounded-full flex items-center justify-center transition hover:bg-[var(--surface-2)]`}
+    >
+      <Icon name={icon} />
+    </button>
+  );
+
+  const themeButton = (size: string) => (
+    <button type="button" onClick={toggleTheme} aria-label={t('theme_toggle')}
+      className={`${size} rounded-full flex items-center justify-center hover:bg-[var(--surface-2)]`}>
+      <Icon name={theme === 'dark' ? 'moon' : 'sun'} />
+    </button>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col font-sans selection:bg-[#B57004] selection:text-white relative overflow-x-hidden">
-      {/* 單一全域 h1 確保 a11y */}
-      <header className="border-b border-white/10 px-6 py-4 flex items-center justify-between glass-panel sticky top-0 z-50">
-        <h1 className="text-xl font-bold tracking-tight flex items-center space-x-2">
-          <span className="text-[#B57004]">✦</span>
-          <span>{t('app_title')}</span>
+    <div className="max-w-7xl mx-auto px-4 py-6 flex gap-4 text-[var(--text)]">
+      {/* 桌機：左側毛玻璃 icon rail */}
+      <aside className="glass hidden sm:flex flex-col items-center gap-3 rounded-full px-2.5 py-5 h-fit sticky top-6">
+        {navButton('search', 'search', 'h-11 w-11')}
+        {navButton('about', 'info', 'h-11 w-11')}
+        <div className="w-6 h-px bg-[var(--panel-border-dim)] my-2" />
+        {themeButton('h-11 w-11')}
+        <LanguageSwitch size="h-11 w-11" />
+      </aside>
+
+      <div className="flex-1 min-w-0">
+        {/* 手機：頂部毛玻璃 bar，必須含語言切換 */}
+        <nav className="glass sm:hidden flex items-center justify-end gap-2 rounded-3xl px-4 py-3 mb-5">
+          {navButton('search', 'search', 'h-9 w-9')}
+          {navButton('about', 'info', 'h-9 w-9')}
+          {themeButton('h-9 w-9')}
+          <LanguageSwitch size="h-9 w-9" />
+        </nav>
+
+        {/* 唯一的 h1，放在 view 判斷之外：搜尋頁與 About 頁都有 */}
+        <h1 className="font-bold text-xl sm:text-2xl flex items-center gap-3 tracking-tight mb-5">
+          <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--surface-2)] border border-[var(--panel-border-dim)]">
+            <Icon name="ticket" />
+          </span>
+          {t('app_title')}
         </h1>
-        <div className="flex items-center space-x-3">
-          <LanguageSwitch />
-          <button
-            type="button"
-            onClick={() => navigateTo(view === 'search' ? 'about' : 'search')}
-            className="text-xs px-3 py-1.5 rounded-full border border-white/20 bg-white/5 hover:bg-white/10 transition"
-          >
-            {view === 'search' ? t('about') : t('search')}
-          </button>
-        </div>
-      </header>
 
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8 space-y-8">
-        {view === 'about' ? (
-          <About onBack={() => navigateTo('search')} />
-        ) : (
-          <>
-            <div className="space-y-4">
-              <SearchCapsule
-                query={query}
-                categories={categories}
-                locations={locations}
-                onChange={(updates) => setQuery((prev) => ({ ...prev, ...updates }))}
-                onSearch={() => handleSearch()}
-                isLoading={status === 'loading'}
-              />
-              <CategoryChips
-                categories={categories}
-                selectedCategory={query.category}
-                onSelectAndSearch={handleShortcutSelect}
-              />
-            </div>
+        {view === 'about' ? <About /> : (
+          <main className="glass rounded-[40px] p-6 sm:p-10 shadow-2xl">
+            {loadError && <ErrorMessage kind={loadError} onRetry={() => loadCountries()} />}
 
-            {status === 'loading' && <LoadingSkeleton />}
-            {status === 'empty' && <EmptyState onReset={handleReset} />}
-            {status === 'error' && <ErrorMessage message={errorMessage} onRetry={() => handleSearch()} />}
-            {status === 'idle' && events.length > 0 && <EventList events={events} />}
-          </>
+            {!loadError && !form && <LoadingSkeleton />}
+
+            {form && country && (
+              <>
+                <div className="flex justify-end mb-6">
+                  <CountryPicker countries={countries} active={form.country} onPick={pickCountry} />
+                </div>
+                <SearchForm
+                  form={form}
+                  country={country}
+                  ready
+                  loading={status === 'loading'}
+                  onChange={(patch) => setForm({ ...form, ...patch })}
+                  onSearch={() => runSearch(form)}
+                  onReset={reset}
+                />
+                <CategoryChips options={country.categories} selected={form.category} onPick={pickCategory} />
+
+                {status === 'idle' && <IdleState />}
+                {status === 'loading' && <LoadingSkeleton />}
+                {status === 'empty' && <EmptyState onReset={reset} />}
+                {status === 'error' && (
+                  <ErrorMessage
+                    kind={searchError}
+                    onRetry={searchError === 'client' || !searched ? undefined : () => runSearch(searched)}
+                  />
+                )}
+                {status === 'results' && (
+                  <>
+                    <p className="text-sm text-[var(--text-muted)] mb-4">{summary}</p>
+                    <EventList events={events} />
+                  </>
+                )}
+              </>
+            )}
+          </main>
         )}
-      </main>
-
-      <footer className="border-t border-white/10 py-6 text-center text-xs text-white/40">
-        Culture Event Finder v2 · Powered by MoC Open Data & Render
-      </footer>
+      </div>
     </div>
   );
 }
@@ -2709,41 +3294,45 @@ function MainApp() {
 export function App() {
   return (
     <I18nProvider>
+      <Scene />
       <MainApp />
     </I18nProvider>
   );
 }
 ```
 
-- [ ] **Step 3: 建立 `frontend/src/App.test.tsx`**
-
-```tsx
-import { describe, it, expect } from 'vitest';
-import React from 'react';
-import { render } from 'react-dom';
-import { App } from './App';
-
-describe('App Component Assembly', () => {
-  it('renders root without exploding', () => {
-    const div = document.createElement('div');
-    expect(div).toBeDefined();
-  });
-});
-```
-
-- [ ] **Step 4: 執行前後端測試與本機 E2E 驗證 ★ checkpoint**
+- [ ] **Step 3: 測試與 build**
 
 ```bash
-make test
+make test && (cd frontend && npm run build)
 ```
 
-Expected: 後端 pytest 與前端 vitest 全數 PASS。
+Expected: 後端 pytest、前端 vitest 全部 PASS；`tsc && vite build` 沒有錯誤（`noUnusedLocals` 開著，沒用到的 import 會在這裡被抓到）。
+
+- [ ] **Step 4: 全流程手動 E2E ★ checkpoint**
+
+```bash
+make dev
+```
+
+瀏覽器開 `http://localhost:8790`，每一項都要親眼看到：
+
+1. 進站看到 idle 畫面（不是空白），預設條件是臺北 / 展覽 / 本月。
+2. 按搜尋：先出現 skeleton，接著出現卡片，上方計數列寫「臺北 · 展覽 · 2026/10 共 N 筆」。
+3. 連點兩個 chip（例如先「音樂」再馬上「展覽」）：最後畫面是展覽的結果，而且「展覽」chip 是亮的。
+4. 選一個確定沒活動的月份（例如明年 12 月、類別「閱讀」）：出現空結果畫面；按裡面的「重設」回到預設條件並重新搜尋。
+5. 錯誤畫面：另開終端機跑 `docker compose -f deployment/dev/docker-compose.yml stop backend`，再按搜尋，看到「連線逾時或服務喚醒中」加重試鈕。跑 `make dev` 重新起 backend 後按重試，結果回來。
+6. 切 EN：所有文案變英文，`<html lang="en">`；重新整理頁面仍然是英文。
+7. 切淺色主題，重新整理仍然是淺色，而且載入時不會先閃一下深色。
+8. 點 About，再按瀏覽器返回鍵，回到搜尋頁，沒有離開網站。
+9. 縮到手機寬度（375px）：左側 rail 消失，頂部 bar 有搜尋、關於、主題、語言四顆按鈕。
+10. 只用鍵盤 Tab：每個可點的東西都看得到焦點外框。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/src/components/About.tsx frontend/src/App.tsx frontend/src/App.test.tsx
-git commit -m "feat(frontend): assemble full App with abort controller, navigation, and error handling"
+git add frontend/src/components/About.tsx frontend/src/App.tsx
+git commit -m "feat(frontend): assemble SPA with state machine, history, theme, and about page"
 ```
 
 ---
@@ -2756,7 +3345,6 @@ git commit -m "feat(frontend): assemble full App with abort controller, navigati
 - Create: `deployment/prod/Dockerfile`
 - Create: `deployment/prod/Dockerfile.dockerignore`
 - Modify: `backend/config/urls.py`（加入 SPA catch-all 路由）
-- Create: `backend/core/__init__.py`、`backend/core/views.py`
 
 **Interfaces:**
 - Consumes: Task 4 的 `frontend/package-lock.json` 與 `npm run build` 產出的 `frontend/dist/`；Task 3 的 `make build-prod`、`make run-prod`
@@ -2766,28 +3354,21 @@ git commit -m "feat(frontend): assemble full App with abort controller, navigati
   - WhiteNoise 靜態託管 + Gunicorn 單一程序多執行緒
   - `CMD exec gunicorn ...`（shell 形式展開 `${PORT}`）
 
-- [ ] **Step 1: 建立 SPA Catch-all View 與更新 `backend/config/urls.py`**
+- [ ] **Step 1: 在 `backend/config/urls.py` 加 SPA catch-all**
+
+一行 `TemplateView` 就夠，不用為了它開一個 app。
 
 ```python
-# backend/core/__init__.py
-# (空檔)
-
-# backend/core/views.py
+from django.urls import include, path, re_path
 from django.views.generic import TemplateView
-
-class IndexView(TemplateView):
-    template_name = "index.html"
-
-# backend/config/urls.py
-from django.urls import path, re_path, include
-from core.views import IndexView
 
 urlpatterns = [
     path("health", include("health.urls")),
     path("health/", include("health.urls")),
     path("api/v1/", include("events.urls")),
-    # SPA catch-all 路由：將所有非 API、非 static、非 health 路徑導向 index.html
-    re_path(r"^(?!api/|static/|health).*$", IndexView.as_view(), name="index"),
+    # SPA catch-all：非 api/、static/、health 的路徑都回 index.html，打錯網址才不會看到 Django 的裸 404 純文字頁。
+    # index.html 來自 settings TEMPLATES 的 DIRS（frontend/dist），所以只在 build 過前端之後才有效
+    re_path(r"^(?!api/|static/|health).*$", TemplateView.as_view(template_name="index.html")),
 ]
 ```
 
@@ -2839,8 +3420,7 @@ WORKDIR /app
 # venv 在 /app/.venv，放進 PATH 後 runtime 直接跑 python / gunicorn，不經過 uv
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/app/.venv/bin:$PATH" \
-    PORT=8080
+    PATH="/app/.venv/bin:$PATH"
 
 # 建立 non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -2858,12 +3438,13 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist/
 RUN SECRET_KEY=build-only-not-used ALLOWED_HOSTS=build-only \
     python backend/manage.py collectstatic --noinput
 
-RUN chown -R appuser:appuser /app
+# runtime 只讀檔，不需要 chown（chown -R 會把整個 venv 再複製成一層，image 平白變大）
 USER appuser
 
 EXPOSE 8080
 
 # 注意：必須使用 shell 形式 exec，確保 ${PORT} 在 Render/Cloud Run runtime 能被正確展開！
+# 平台會注入 PORT（Render 10000、Cloud Run 8080）；本機沒注入時用 8080
 CMD exec gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --worker-class gthread --timeout 60
 ```
 
@@ -2892,11 +3473,13 @@ sleep 3
 curl -s http://127.0.0.1:8080/health | grep -q '"status": "ok"' && echo "OK: /health 200"
 curl -s http://127.0.0.1:8080/ | grep -q "Culture Event Finder" && echo "OK: / SPA index 200"
 curl -s http://127.0.0.1:8080/api/v1/countries | grep -q '"tw"' && echo "OK: /api/v1/countries 200"
+curl -sf http://127.0.0.1:8080/static/favicon.svg > /dev/null && echo "OK: public/ asset under /static/"
+curl -s http://127.0.0.1:8080/no/such/page | grep -q "Culture Event Finder" && echo "OK: SPA catch-all"
 
 docker stop smoke-test && docker rm smoke-test
 ```
 
-Expected: 3 個 curl 全數印出 `OK: ...`。任何一個沒印，先跑 `docker logs smoke-test` 再停 container。
+Expected: 5 個 curl 全數印出 `OK: ...`。任何一個沒印，先跑 `docker logs smoke-test` 再停 container。
 
 - [ ] **Step 6: 用 Makefile 再跑一次，確認 target 接得上**
 
@@ -2909,7 +3492,7 @@ make run-prod
 - [ ] **Step 7: Commit**
 
 ```bash
-git add deployment/prod/Dockerfile deployment/prod/Dockerfile.dockerignore backend/core/ backend/config/urls.py
+git add deployment/prod/Dockerfile deployment/prod/Dockerfile.dockerignore backend/config/urls.py
 git commit -m "feat(deploy): add multi-stage prod Dockerfile under deployment/prod and SPA catch-all routing"
 ```
 
@@ -2931,9 +3514,16 @@ git commit -m "feat(deploy): add multi-stage prod Dockerfile under deployment/pr
    寫明 dev 網址：前端 `http://localhost:8790`、後端 `http://localhost:8789`；
    compose 檔在 `deployment/dev/`，**直接打 `docker compose up` 會找不到檔案，一律用 `make`**。
    寫明部署檔都在 `deployment/`（dev 與 prod 各一個子目錄），build context 是 repo root。
-3. Render 免費層配額注意事項（每月 750 小時、500 分鐘 build、5 GB 流量，以及 15 分鐘休眠喚醒）。
-4. 環境變數表（`SECRET_KEY`, `ALLOWED_HOSTS`, `DEBUG`, `PORT`）。
-5. Rollback 與離線故障排除指引。
+3. Render 設定表：照抄 spec §6.1 那張表（含 Dockerfile Path 填 `deployment/prod/Dockerfile`），以及建服務的順序：先建服務拿到真實網址，再填 `ALLOWED_HOSTS`。
+4. Render 免費層配額注意事項（每月 750 小時、500 分鐘 build、5 GB 流量，以及 15 分鐘休眠喚醒）。
+5. 環境變數表：照抄 spec §11 整張表（`SECRET_KEY`、`ALLOWED_HOSTS`、`DEBUG`、`PORT`、`UV_PROJECT_ENVIRONMENT`、`HOST_UID` / `HOST_GID`），並寫明 `DJANGO_ENV` 不存在。
+6. Rollback：Render dashboard 的 Rollback 會**自動關掉 Auto-Deploy**，修好後要回 Settings 設回「After CI Checks Pass」，不然之後 push 都不會部署。
+7. 事後診斷：`curl` 搜尋 API 看 `meta` 的三個數字（`rawCount` 0 是上游沒資料、`matchedCount` 0 而 `rawCount` 大是過濾壞了、`cacheAge` null 是 cache miss）；`X-Request-ID` 可以拿去 Render Logs 搜，**只保留 7 天**。
+8. 「這幾樣東西不會自己告訴你」：
+   a. 監控 workflow 在 public repo 60 天沒活動會被 GitHub 自動停用，每兩個月看一次 Actions 頁面。
+   b. `verify=False` 是暫時解，MoC 修好憑證不會有人通知，狀態未被監控。
+   c. `rollback` 之後 Auto-Deploy 是關的。
+9. 加國家不是只加一個 provider 檔：列出 spec §10 那四個卡點（前端 `COMING_SOON`、地址 substring 比對、`fetch_events(category)` 的簽名、i18n 只有 zh/en）。
 
 - [ ] **Step 2: Commit**
 
@@ -2961,57 +3551,57 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 jobs:
   test-backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v10
         with:
-          version: "0.12.5"
-      - name: Set up Python
-        run: uv python install 3.13
-      - name: Run backend tests
-        run: |
-          cd backend
-          SECRET_KEY=ci-test-key ALLOWED_HOSTS=localhost uv run pytest .
+          version: "0.12.5"   # 與兩個 Dockerfile 的 uv 版本一致
+      # uv 會照 .python-version 自己裝 Python；測試入口跟本機一樣是 make
+      - run: make test-backend
 
   test-frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install dependencies
-        run: cd frontend && npm install
-      - name: Run frontend tests
-        run: cd frontend && npm test
-      - name: Build frontend
-        run: cd frontend && npm run build
+      - run: cd frontend && npm ci
+      # tsc 與 vite build 由 build-smoke 的 docker build 負責，這裡只跑單元測試
+      - run: make test-frontend
 
   build-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Docker image
+      - name: Build prod image
         run: docker build -f deployment/prod/Dockerfile -t smoke-test-image .
-      - name: Run smoke test
+      - name: Start container
         run: |
           docker run -d --name smoke-app -p 8080:8080 \
             -e SECRET_KEY=ci-smoke-key \
             -e ALLOWED_HOSTS=localhost,127.0.0.1 \
             smoke-test-image
-          sleep 5
-          curl --fail http://127.0.0.1:8080/health
-          curl --fail http://127.0.0.1:8080/api/v1/countries
-          docker stop smoke-app
+      - name: Smoke test
+        # 不打真實 MoC：上游一有狀況 pipeline 就紅燈；contract 由 test-backend 的 responses mock 負責
+        run: |
+          curl -sf --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8080/health
+          curl -sf http://127.0.0.1:8080/ | grep -q "Culture Event Finder"
+          curl -sf http://127.0.0.1:8080/api/v1/countries | grep -q '"tw"'
+          # public/ 的資產在 prod 是 /static/ 底下；JSX 寫死 /favicon.svg 的話 dev 正常、prod 404
+          curl -sf http://127.0.0.1:8080/static/favicon.svg > /dev/null
+          # 不存在的路徑要回 SPA 的 index.html（200），不是 500
+          curl -sf http://127.0.0.1:8080/no/such/page | grep -q "Culture Event Finder"
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs smoke-app
 ```
 
 - [ ] **Step 2: Commit**
@@ -3051,7 +3641,9 @@ git commit -m "ci: add GitHub Actions CI pipeline with backend, frontend, and co
 PROD_URL="https://<真實服務名>.onrender.com"
 
 curl -s "$PROD_URL/health" | grep -q '"status": "ok"' && echo "OK: prod health check"
-curl -s "$PROD_URL/api/v1/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=2026-10" | grep -q '"events":' && echo "OK: prod live query"
+# 空陣列算沒過（spec §8.1）：斷言 events 筆數 > 0，月份用當月
+curl -sf "$PROD_URL/api/v1/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=$(date +%Y-%m)" \
+  | jq -e '.events | length > 0' && echo "OK: prod live query"
 ```
 
 Expected: 兩項驗證皆通過。
@@ -3064,57 +3656,35 @@ Expected: 兩項驗證皆通過。
 - Create: `.github/workflows/monitor.yml`
 
 **Interfaces:**
-- 嚴格正向白名單斷言（HTTP 200 + 有效 JSON + events > 0）
+- 嚴格正向白名單斷言（HTTP 200 + 有效 JSON + events > 0），一行 `curl | jq -e`
 - 每 30 分鐘執行一次（`17,47 * * * *`），`curl --max-time 120`
 - v1 關閉下線清單執行
 
 - [ ] **Step 1: 建立 `.github/workflows/monitor.yml` (嚴格正向白名單斷言)**
+
+把 `PROD_URL` 換成 Task 15 取得的真實網址。網址本來就是公開的，不用放 secret。
 
 ```yaml
 name: Production Health Monitor
 
 on:
   schedule:
-    # 避開整點，每 30 分鐘執行一次
-    - cron: '17,47 * * * *'
+    - cron: '17,47 * * * *'   # 每 30 分鐘，避開整點的排程延遲
   workflow_dispatch:
+
+env:
+  PROD_URL: https://<真實服務名>.onrender.com
 
 jobs:
   health-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check Live Endpoint with Positive Assertion
-        run: |
-          PROD_URL="https://${{ secrets.PROD_HOSTNAME }}"
-          # 查詢當前年份與月份
-          YEAR_MONTH=$(date +"%Y-%m")
-          QUERY_URL="${PROD_URL}/api/v1/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=${YEAR_MONTH}"
-
-          echo "Pinging: $QUERY_URL"
-
-          # 允許 120 秒 timeout 以涵蓋 Render spin down 喚醒時間
-          HTTP_RESPONSE=$(curl -s -S --max-time 120 -w "\n%{http_code}" "$QUERY_URL")
-          HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1)
-          BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
-
-          echo "HTTP Status: $HTTP_STATUS"
-
-          # 正向白名單判定 (P1 必改):
-          # 必須 HTTP status 200 且 events 筆數大於 0；其餘情況 (包含 Render 喚醒 HTML、500、502、空陣列等) 全部算失敗
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "FAIL: Expected HTTP 200 but got $HTTP_STATUS"
-            echo "Response Body: $BODY"
-            exit 1
-          fi
-
-          COUNT=$(echo "$BODY" | jq -r '.events | length' 2>/dev/null || echo "-1")
-          if [ "$COUNT" -le 0 ]; then
-            echo "FAIL: Expected events count > 0, but got $COUNT"
-            echo "Response Body: $BODY"
-            exit 1
-          fi
-
-          echo "SUCCESS: Query passed with $COUNT events returned."
+      # 正向白名單：HTTP 200 且是 JSON 且 events 筆數 > 0 才算成功，其餘一律失敗。
+      # curl -f 讓 4xx/5xx 失敗；Render 喚醒頁或配額暫停頁是 HTML，jq 解析失敗也是失敗。
+      # --max-time 120：服務幾乎每次都睡著，喚醒約 1 分鐘加上游最多 15 秒
+      - run: |
+          curl -sSf --max-time 120 "$PROD_URL/api/v1/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=$(date +%Y-%m)" \
+            | jq -e '.events | length > 0'
 ```
 
 - [ ] **Step 2: Commit**
@@ -3133,25 +3703,6 @@ git commit -m "ci: add scheduled production monitoring workflow with strict posi
 
 ---
 
-## 附錄：Task 與 Phase 對照表
+---
 
-| Task | 所屬 Phase | 名稱 | 主要產出 | Checkpoint |
-|---|---|---|---|---|
-| T1 | Phase 1 | uv 初始化 | `pyproject.toml`, `uv.lock` | 無 |
-| T2 | Phase 1 | backend 目錄與 settings | `backend/config/settings.py`, `backend/health/` | ★ fail-fast 驗證 |
-| T3 | Phase 1 | dev 環境配置 | `deployment/dev/backend.Dockerfile`, `deployment/dev/docker-compose.yml`, `Makefile` | 無（local 驗收：`curl localhost:8789/health`） |
-| T4 | Phase 1 | 前端 scaffold | `frontend/` (Vite, TS, Tailwind, Vitest), `deployment/dev/frontend.Dockerfile` | ★ `make test` 全測通過 + 瀏覽器開 8790 |
-| T5 | Phase 2 | Provider 層 | `base.py`, `taiwan.py`, `registry.py` | 無 |
-| T6 | Phase 2 | Services 層 | `services.py` (快取、區間重疊、正規化) | 無 |
-| T7 | Phase 2 | API 端點串接 | `backend/events/views.py`, `urls.py` | ★ 真實 MoC 查詢通過 |
-| T8 | Phase 3 | 前端型別與 API 客戶端 | `types/`, `client.ts`, `format.ts` | 無 |
-| T9 | Phase 3 | i18n 系統 | `locales/`, `context/i18n.tsx`, `LanguageSwitch.tsx` | ★ 3 項 i18n 測試通過 |
-| T10a| Phase 3 | 設計系統與狀態元件 | `design.css`, `LoadingSkeleton.tsx`, `EmptyState.tsx`, `ErrorMessage.tsx` | ★ 前端 build 通過 |
-| T10b| Phase 3 | 活動卡片與列表 | `EventCard.tsx`, `EventList.tsx` | ★ 前端 build 通過 |
-| T10c| Phase 3 | 搜尋膠囊與快捷選單 | `SearchCapsule.tsx`, `CategoryChips.tsx` | ★ 前端 build 通過 |
-| T11 | Phase 3 | App 組裝與 About 頁 | `App.tsx`, `About.tsx` | ★ 全流程 E2E 手動驗證 |
-| T12 | Phase 4 | 多階段 Dockerfile | `deployment/prod/Dockerfile`, `Dockerfile.dockerignore`, SPA 路由 | ★ 本機 container smoke test |
-| T13 | Phase 4 | README 文件定稿 | `README.md` | 無 |
-| T14 | Phase 5 | GitHub Actions CI | `.github/workflows/ci.yml` | 無 |
-| T15 | Phase 5 | Render 服務建立與部署 | Render Web Service 部署 | ★ 線上環境 curl 驗收 |
-| T16 | Phase 5 | 定時監控與下線清單 | `.github/workflows/monitor.yml`, v1 銷毀 | ★ 定時監控生效與 v1 下線 |
+進度追蹤只記在 `docs/roadmaps/2026-10-04-roadmap-v7.md`，本文件不另放對照表。
