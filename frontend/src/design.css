@@ -1,0 +1,256 @@
+:root, [data-theme="dark"] {
+    /* High-contrast luxury mesh gradient background - v20 Warm Spotlight */
+    --wall-grad: radial-gradient(circle at 80% 20%, #1e1812 0%, #05070f 65%); 
+    --lamp-1: rgba(181, 112, 4, 0.25); 
+    --lamp-2: rgba(14, 165, 233, 0.12); 
+    --floor: rgba(1, 2, 8, 0.95);
+
+    /* Glass panel & text variables for Dark Mode */
+    --panel: rgba(255, 255, 255, 0.02); 
+    --panel-border: rgba(255, 255, 255, 0.32); 
+    --panel-border-dim: rgba(255, 255, 255, 0.08);
+    --sheen: rgba(255, 255, 255, 0.08);
+    --surface-2: rgba(255, 255, 255, 0.03); 
+    --chip-dis: rgba(255, 255, 255, 0.04);
+    --skel: rgba(255, 255, 255, 0.06);
+    --text: #ffffff; 
+    --text-muted: #cbd5e1; 
+    --text-faint: #94a3b8;
+    
+    /* Primary Action: Copper Ochre (#B57004) Gradient designed by Antigravity */
+    --accent: #B57004; 
+    --accent-cool: #7a4700; 
+    --accent-deep: #543000;
+    --link: #d99c38; 
+  }
+  [data-theme="light"] {
+    /* Elegant light theme gradient background - v20 Warm Sand */
+    --wall-grad: radial-gradient(circle at 80% 20%, #fef3c7 0%, #cbd5e1 65%);
+    --lamp-1: rgba(181, 112, 4, 0.2);
+    --lamp-2: rgba(14, 165, 233, 0.08);
+    --floor: rgba(15, 23, 42, 0.05);
+
+    /* Glass panel & text variables for Light Mode */
+    --panel: rgba(255, 255, 255, 0.55); 
+    --panel-border: rgba(255, 255, 255, 0.95);
+    --panel-border-dim: rgba(15, 23, 42, 0.15);
+    --sheen: rgba(255, 255, 255, 0.35);
+    --surface-2: rgba(15, 23, 42, 0.05); 
+    --chip-dis: rgba(15, 23, 42, 0.08);
+    --skel: rgba(15, 23, 42, 0.06);
+    --text: #0f172a; 
+    --text-muted: #334155;
+    --text-faint: #64748b;
+    --accent: #B57004;
+    --accent-cool: #7a4700;
+    --accent-deep: #543000;
+    --link: #B57004;
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "Noto Sans TC", sans-serif;
+    background: #05070f;
+    position: relative;
+    isolation: isolate;
+    transition: background .3s;
+  }
+
+  /* Designed abstract background vectors to highlight the frosted glass blur */
+  .scene { position: fixed; inset: 0; z-index: -1; overflow: hidden; }
+  .wall {
+    position: absolute; inset: 0;
+    background: var(--wall-grad);
+    transition: background .3s;
+  }
+  .lamp-light {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 65% 50% at 85% 5%, var(--lamp-1), transparent 75%),
+      radial-gradient(ellipse 55% 45% at 15% 95%, var(--lamp-2), transparent 80%);
+    pointer-events: none;
+  }
+  .floor-shadow {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, transparent 55%, var(--floor) 100%);
+    pointer-events: none;
+  }
+  
+  /* Ambient blobs - High contrast amber & cyan light projection - v20 Warm Spotlight */
+  .blob { position: absolute; border-radius: 9999px; opacity: 0.75; filter: blur(36px); pointer-events: none; }
+  .blob-bronze { width: 550px; height: 550px; top: -120px; right: 5%;
+    background: radial-gradient(circle, rgba(181,112,4,0.2) 0%, rgba(122,71,0,0.06) 50%, transparent 80%); }
+  .blob-cyan { width: 450px; height: 450px; bottom: 15%; left: 35%;
+    background: radial-gradient(circle, rgba(14,165,233,0.15) 0%, rgba(3,105,161,0.04) 50%, transparent 80%); }
+
+  /* Premium transparent glassmorphism panel styling */
+  .glass {
+    position: relative;
+    background: var(--panel);
+    border: 1.5px solid var(--panel-border-dim);
+    border-top: 1.8px solid var(--panel-border);
+    border-left: 1.8px solid var(--panel-border-dim); /* Enhanced bevel */
+    border-right: 1.8px solid var(--panel-border); 
+    box-shadow: 
+      0 40px 90px -25px rgba(0,0,0,0.85),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(40px) saturate(160%) brightness(1.05); 
+    -webkit-backdrop-filter: blur(40px) saturate(160%) brightness(1.05);
+    transition: background .3s, border-color .3s;
+  }
+  [data-theme="light"] .glass {
+    backdrop-filter: blur(36px) saturate(150%) brightness(1.02);
+    -webkit-backdrop-filter: blur(36px) saturate(150%) brightness(1.02);
+    box-shadow: 0 40px 90px -25px rgba(15,23,42,0.1);
+  }
+  /* Glossy diagonal sheen reflection on glass surface */
+  .glass::after {
+    content: "";
+    position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 20%, transparent 40%);
+  }
+  [data-theme="light"] .glass::after {
+    background: linear-gradient(135deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.1) 25%, transparent 50%);
+  }
+  .glass > * { position: relative; z-index: 1; }
+
+  /* Unified Search Bar styling */
+  .search-capsule {
+    display: flex;
+    background: var(--surface-2);
+    border: 1px solid var(--panel-border-dim);
+    box-shadow: 0 4px 20px -5px rgba(0,0,0,0.2);
+    overflow: hidden;
+    transition: box-shadow 0.3s, border-color 0.3s;
+  }
+  .search-capsule:hover, .search-capsule:focus-within {
+    box-shadow: 0 8px 30px -5px rgba(0,0,0,0.3);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  [data-theme="light"] .search-capsule:hover { border-color: rgba(15, 23, 42, 0.3); }
+  .search-field {
+    flex: 1;
+    position: relative;
+    padding: 0.75rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-bottom: 1px solid var(--panel-border-dim);
+    transition: background 0.2s;
+  }
+  @media (min-width: 640px) {
+    .search-field {
+      border-bottom: none;
+      border-right: 1px solid var(--panel-border-dim);
+      padding: 0.5rem 1rem;
+    }
+  }
+  .search-field:last-of-type { border-bottom: none; border-right: none; }
+  .search-field:hover { background: rgba(255, 255, 255, 0.04); }
+  [data-theme="light"] .search-field:hover { background: rgba(15, 23, 42, 0.03); }
+  
+  .search-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 2px;
+  }
+  .search-select {
+    background: transparent !important;
+    color: var(--text);
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: none;
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent-cool), var(--accent)); 
+    color: #ffffff;
+    border-radius: 9999px;
+    font-weight: 600;
+    transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+  }
+  .btn-primary:hover {
+    background: var(--accent);
+    transform: scale(1.02);
+    box-shadow: 0 8px 25px -5px var(--accent-cool);
+  }
+  
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+    border-radius: 9999px;
+    font-weight: 500;
+    transition: all 0.2s ease-out;
+  }
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    transform: translateY(-1px);
+  }
+  [data-theme="light"] .btn-secondary {
+    background: rgba(15, 23, 42, 0.04);
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    color: var(--text-muted);
+  }
+  [data-theme="light"] .btn-secondary:hover {
+    background: rgba(15, 23, 42, 0.1);
+    border-color: rgba(15, 23, 42, 0.2);
+    color: var(--text);
+  }
+
+  .chip.active {
+    background: linear-gradient(135deg, var(--accent-cool), var(--accent)) !important;
+    color: #ffffff !important;
+    font-weight: 600;
+    border-color: transparent !important;
+    box-shadow: 0 4px 15px -3px var(--accent-cool);
+  }
+
+  .rail-btn.active { 
+    background: linear-gradient(135deg, var(--accent-cool), var(--accent)); 
+    color: #ffffff; 
+    box-shadow: 0 4px 15px -3px var(--accent-cool);
+  }
+
+  .card-hover {
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+  }
+  .card-hover:hover { transform: translateY(-6px); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6); border-color: rgba(255,255,255,0.15); }
+  [data-theme="light"] .card-hover:hover { box-shadow: 0 25px 50px -12px rgba(15,23,42,0.2); }
+  
+  /* Image zoom animation */
+  .card-img-svg { transition: transform 1.5s cubic-bezier(0.16, 1, 0.3, 1); }
+  .card-hover:hover .card-img-svg { transform: scale(1.08); }
+
+  .icon { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Keep focus outline visible for keyboard navigation */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Add custom chevron because appearance:none removes the native select arrow */
+.search-field.has-select::after {
+  content: "";
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.1rem;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--text-faint);
+  border-bottom: 2px solid var(--text-faint);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+/* Fallback for low-spec devices: remove blur and make panels opaque
+.glass, [data-theme="light"] .glass, .card-hover { backdrop-filter: none; -webkit-backdrop-filter: none; }
+:root, [data-theme="dark"] { --panel: rgba(15, 18, 28, 0.92); }
+[data-theme="light"] { --panel: rgba(255, 255, 255, 0.92); }
+*/

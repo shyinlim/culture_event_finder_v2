@@ -1,7 +1,19 @@
+import { I18nProvider } from './i18n';
+import { Scene } from './components/Scene';
+import { EmptyState, ErrorMessage, IdleState, LoadingSkeleton } from './components/StatePanels';
+
+// Temporary preview page for Task 10a checkpoint verification.
 export function App() {
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
-      <h1 className="text-3xl font-bold">Culture Event Finder v2</h1>
-    </div>
+    <I18nProvider>
+      <Scene />
+      <main className="glass rounded-[40px] p-6 sm:p-10 max-w-5xl mx-auto my-6 text-[var(--text)] space-y-6">
+        <IdleState />
+        <LoadingSkeleton />
+        <EmptyState onReset={() => {}} />
+        <ErrorMessage kind="upstream" onRetry={() => {}} />
+        <ErrorMessage kind="client" />
+      </main>
+    </I18nProvider>
   );
 }

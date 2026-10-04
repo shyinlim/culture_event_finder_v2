@@ -1,5 +1,2 @@
 @import "tailwindcss";
-
-:root {
-  color-scheme: dark light;
-}
+@import "./design.css";
