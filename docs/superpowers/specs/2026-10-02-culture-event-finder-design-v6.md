@@ -1,15 +1,16 @@
-# Culture Event Finder：React + Django API 重構設計 v5
+# Culture Event Finder：React + Django API 重構設計 v6
 
-- 日期：2026-08-23
-- 狀態：**SUPERSEDED**，由 `2026-10-02-culture-event-finder-design-v6.md` 取代
-- 取代：`2026-08-22-culture-event-finder-design-v4.md`（v4 標記 SUPERSEDED）
-- 前身：`taiwan_culture_event_info_django_jinja2`（Django + Jinja2 server-rendered）
+- 日期：2026-10-02
+- 狀態：**SUPERSEDED**，由 `2026-10-04-culture-event-finder-design-v7.md` 取代
+- 原狀態：owner 於 2026-10-02 批准方向；同日通過 Review-Crew 審查並完成修訂（納入 3 組 P1 必改、6 組 P2 該改，並定案 3 項決策：保留 Provider ABC 擴充骨架、前端 20 項需求全做、v1/v2 彼此獨立不侵入修改 v1）
+- 取代：`2026-08-23-culture-event-finder-design-v5.md`（v5 標記 SUPERSEDED）
+- 前身：`taiwan_culture_event_info_django_jinja2`（Django + Jinja2 server-rendered，
+  另一個 repo，現役跑在 Fly.io app `taiwan-culture-event-info`）
+- 本 repo：`culture_event_finder_v2`（全新 repo，從零開始，不搬 v1 的 git歷史）
 
-> 本文件自足。執行時不需開啟 v1 / v2 / v3 / v4。
+> 本文件自足。執行時不需開啟 v1 到 v5。需要 v1 的程式碼時，只看 §7 列出的檔案。
 
-**Phase 編號全文統一為 0 到 7，見 §9。** v4 的 §1 與 §6 用舊的一套編號
-（Fly 是 Phase 3、Cloud Run 是 Phase 4），與同一份文件 §9 的里程碑對不上，
-會讓實作者在前端做完就 merge master，正是 §6.4 說會卡死 CI 的那個失敗。
+**Phase 編號全文統一為 0 到 7，見 §9。**
 
 ## 1. 背景與定位
 
@@ -19,8 +20,10 @@
 重構的驅動需求：
 
 1. 前後端改為 **React (Vite) SPA + Django JSON API**，兼顧 owner 的 SDET 職涯發展。
-2. Hosting 分兩階段：**Phase 5 續用 Fly.io**（現有 app 仍服役，遷移風險為零，先出貨）；
-   **Phase 6 才遷 Google Cloud Run** 追求 $0（always-free tier）。Phase 6 另開 branch，不 block 主線。
+2. Hosting 分兩階段：**Phase 5 上 Render free web service**（不用綁卡、$0，先出貨）；
+   **Phase 6 才遷 Google Cloud Run**（always-free tier，owner 有時間再做）。
+   Phase 6 另開 branch，不 block 主線。v1 在 Fly 上照常跑，當 v2 的 fallback，
+   v2 上線穩定一週後才關（§6.5）。
 3. UI 全面重做：**mobile-first responsive、卡片式列表**，丟掉 Material Dashboard 後台模板。
 4. **多國擴展架構**：先做骨架，只實作台灣；未來加國家不推翻重寫。
 5. **UI 多語言 (zh/en)**：用免費方案 (locale JSON)，不用付費翻譯服務。
@@ -35,17 +38,19 @@
 - SEO / SSR
 - 活動內容機器翻譯（活動資料維持資料源語言）
 - 第二個國家的實作（只做架構）
-- **k8s 不進主線**：Fly.io 走 `fly.toml` + Dockerfile → Firecracker microVM，
-  Cloud Run 是 serverless container，兩者皆不吃 k8s manifest。
-  Fly Kubernetes (FKS) 仍在 closed beta 且官方不建議 production。
-  k8s 對本專案（單 container、單 machine）無運行價值，列為 Phase 7 學習用 side quest。
+- **k8s 不進主線**：Render 與 Cloud Run 都是吃 Dockerfile 的 container 平台，
+  不吃 k8s manifest。k8s 對本專案（單 container、單 instance）無運行價值，
+  列為 Phase 7 學習用 side quest。
+- **`render.yaml`（Blueprint）不做**：Render 的設定只有 region、plan、health check path、
+  兩個環境變數、auto-deploy 模式這六項，在 dashboard 點一次，抄進 README（§6.1）。
+  Phase 6 搬走時這份設定就作廢，為它多維護一個檔不划算。
 
 ## 2. Repo 結構 (monorepo)
 
-Repo 改名為 `culture-event-finder`（GitHub 改名，舊名自動 redirect）。
+Repo 名稱維持 `culture_event_finder_v2`，不改名。
 
 ```
-culture-event-finder/
+culture_event_finder_v2/
 ├── backend/                     # Django
 │   ├── config/                  # settings / urls / wsgi
 │   ├── events/                  # 唯一的業務 app
@@ -68,12 +73,11 @@ culture-event-finder/
 │       └── locales/             # zh.json / en.json
 ├── docs/poc/                    # POC HTML 迭代紀錄（design reference，唯讀）
 ├── Dockerfile                   # prod multi-stage（repo root）
-├── docker-compose.dev.yml       # dev 環境（repo root）
-└── fly.toml
+└── docker-compose.dev.yml       # dev 環境（repo root）
 ```
 
-**`docker-compose.dev.yml` 與兩個 `Dockerfile.dev` 放在 repo root / `backend/` / `frontend/`**，
-不放 `deployment_tcei/`：該目錄會被整個刪除。
+沒有任何平台專屬設定檔（無 `fly.toml`、無 `render.yaml`）。同一個 Dockerfile
+在 Render 與 Cloud Run 都能直接跑，因為兩者都會注入 `$PORT`（§6.1）。
 
 分層原則：views (HTTP) → services (業務邏輯 + cache) → providers (外部資料源)。
 每層單獨可測、單獨可替換。**不再加第四層**：不引 DRF、不引 serializer、不引 repository。
@@ -98,8 +102,8 @@ GET /health
     → 200，平台 health check。不碰任何外部依賴，只證明 process 活著。
 ```
 
-**`meta` 是這個專案唯一的事後診斷工具，不是裝飾。** `fly logs` 只有即時串流、
-machine 又是 scale-to-zero，半年後「查無結果」的回報進來時沒有任何 log 可讀（§3.4）。
+**`meta` 是這個專案最可靠的事後診斷工具，不是裝飾。** Render 的 log 只保留 7 天
+（Hobby workspace），朋友常常隔一兩週才回報「查無結果」，那時 log 已經沒了（§3.4）。
 三個數字分別回答三個問題：`rawCount` 是上游給了幾筆（0 代表 MoC 那邊沒資料或格式變了）、
 `matchedCount` 是本地過濾後剩幾筆（`rawCount` 大而 `matchedCount` 為 0 代表過濾邏輯壞了）、
 `cacheAge` 是這份資料在 cache 裡幾秒了（`null` 代表這次是 miss）。
@@ -147,11 +151,13 @@ services 不 raise `KeyError`，view 的 try 區塊只留 `except UpstreamError`
 - `taiwan.py` 實作 MoC API。SSL `verify=False` workaround（`cloud.culture.tw` 憑證缺
   Subject Key Identifier，Python 3.13 拒連）封裝在此檔內並附註解。
 - Registry 用簡單 dict：`PROVIDERS = {"tw": TaiwanProvider()}`。
-- 現有 `data.py` 的 hardcoded Location/EventCategory 移入 `taiwan.py`。
+- v1 `main_project/culture/data.py` 的 hardcoded Location/EventCategory 移植進
+  `taiwan.py`（來源檔見 §7）。
 
-**界線：不要再加 provider factory、不要加 `providers/registry.py`、
-不要讓 `get_provider` 做 fallback。** 這個 ABC 只有一個實作，它換到的是
-README「Adding a country」那幾步真的成立，成本只有一個 `@abstractmethod`。
+**界線與定位（Owner 於 2026-10-02 明確確認保留）：不要再加 provider factory、不要加 `providers/registry.py`、
+不要讓 `get_provider` 做 fallback。** 這個 ABC 目前雖只有一個實作，但不是過度設計，
+而是明確為未來多國/多來源開發所預留的擴展骨架，換到的是
+README「Adding a country」那幾步真的成立且單元測試極易 mock，成本只有一個 `@abstractmethod`。
 
 #### 台灣的 locations 是 20 個前綴，涵蓋 22 個縣市
 
@@ -190,7 +196,8 @@ README「Adding a country」那幾步真的成立，成本只有一個 `@abstrac
 - Key：`events:{country}:{category}`；TTL：12 小時 (`43200` 秒)。
 - MoC API 只按 category 查詢（location/月份是本地過濾）。「每 12 小時最多打 12 次上游、
   跨 user 共用」是 best-effort 上界，不是硬保證：LocMemCache 是 per-process 記憶體。
-  故 prod 用 `--workers 1`；Fly 側 `min_machines_running = 0` 且維持單 machine。
+  故 prod 用 `--workers 1`；Render free 本身就只能跑單一 instance（不能 scale），
+  所以平台側不用另外設定。
 - **`--workers 1` 必須搭配 `--threads 8 --worker-class gthread`。**
   gunicorn 預設是 sync worker，一個 worker 一次只吃一個 request。cache miss 時
   `requests.get(timeout=15)` 會佔住整個 process，這段期間靜態檔、`/health`、
@@ -204,7 +211,7 @@ README「Adding a country」那幾步真的成立，成本只有一個 `@abstrac
   停在那裡，正是本節加 gthread 要避免的狀況，而且是在上游最虛弱的時候加倍打它。
   失敗時寫一個短 TTL 的失敗標記，60 秒內的後續請求直接回 502 不再打上游。
   60 秒夠短，上游恢復後最多一分鐘就會重試。
-- 已知限制：scale-to-zero 時 cache 消失：可接受。未來接付費 API 時僅改 settings
+- 已知限制：spin down（Render free 閒置 15 分鐘）時 cache 消失：可接受。未來接付費 API 時僅改 settings
   換持久 backend，業務 code 不動。
 - **Cloud Run 上此上界僅在 `--max-instances=1` 時成立**（見 §6.6）。
 
@@ -234,7 +241,7 @@ API 收 ISO `month=2026-07`，MoC 的 `show['time']` 是 `YYYY/MM/DD HH:MM:SS`�
   任一個都足以讓它永遠回綠燈：
   1. 旗標只在 cache **miss** 的路徑上被寫，也就是只有真人搜尋才會動。
      沒人搜的時段，MoC 掛掉不會留下任何痕跡。
-  2. 旗標放在 LocMemCache，而 machine 是 scale-to-zero。機器一停旗標就消失，
+  2. 旗標放在 LocMemCache，而服務閒置 15 分鐘就 spin down。服務一停旗標就消失，
      重啟後必然是「乾淨」狀態，與上游實際健康無關。
   3. 監控每次去讀的是一個唯讀的 cache view，它自己從不碰 MoC。
      所以這個「上游監控」整條鏈路裡沒有任何一段真的接觸上游。
@@ -249,9 +256,9 @@ API 收 ISO `month=2026-07`，MoC 的 `show['time']` 是 `YYYY/MM/DD HH:MM:SS`�
   等於這個「唯一會亮的東西」一行紀錄都不會留下。
 - **每個查詢回應都帶 `meta`（§3.1）。** 這是取代旗標的事後診斷手段：
   不需要 log 保留期，也不需要監控，owner 一個 curl 就分得出上游問題與自己的問題。
-- **已知限制**：`fly logs` 只有即時串流，machine 是 scale-to-zero，
-  事後拿到 `X-Request-ID` 也還原不了當時的 log。README 要寫明這一點，
-  不要讓那個 header 看起來像可以追查的東西。
+- **已知限制**：Render 的 log 只保留 7 天。`X-Request-ID` 在 7 天內可以拿去
+  Render dashboard 的 Logs 搜尋，超過 7 天就查不到。README 要寫明這個期限，
+  不要讓那個 header 看起來像永遠可以追查的東西。
 - **correlation id 在 `--threads 8` 下必須先驗過。** 八個 request 共用一個 process，
   `toolkitsy.logger.set_correlation_id` 若用 module global 而非 `contextvars`
   或 `threading.local`，log 會互相錯掛，而且錯掛比沒有 id 更糟。
@@ -292,8 +299,8 @@ API 收 ISO `month=2026-07`，MoC 的 `show['time']` 是 `YYYY/MM/DD HH:MM:SS`�
     只改 state 不重搜會讓使用者以為篩選壞了）。兩者都要 `aria-pressed`
   - **結果**：卡片式列表：漸層 banner + 白色線條幾何裝飾（三組輪流，hover 時
     banner SVG 有 1.5s 慢速 zoom 動效）、活動名稱（hover 變 accent 色）、時間、
-    地點（點擊開 Google Map，新分頁）、卡片底部一條分隔線後放票價 + 一個連往
-    Google 搜尋的按鈕；手機單欄、桌機三欄 grid。狀態 badge 文案含裝飾性 emoji
+    地點（點擊開 Google Map，新分頁，組裝 URL 時地點需做 `encodeURIComponent`，避免地址包含 `&` 或 `#` 等特殊字元損壞外連）、卡片底部一條分隔線後放票價 + 一個連往
+    Google 搜尋的按鈕（活動名稱同樣需 `encodeURIComponent`）；手機單欄、桌機三欄 grid。狀態 badge 文案含裝飾性 emoji
     （「🔥 熱賣中」，owner 已於 2026-08-22 確認保留）
   - **卡片的時間必須顯示區間，不是只有 `startTime`。** 後端整節 §3.3 在打
     區間重疊比對的仗，`endTime` 也一路傳到前端的型別裡，卡片只 render `startTime`
@@ -317,10 +324,23 @@ API 收 ISO `month=2026-07`，MoC 的 `show['time']` 是 `YYYY/MM/DD HH:MM:SS`�
     兩條路擇一：`SearchForm` 真的加一顆「重設」鈕（把四個欄位回到預設值），
     或把文案改成「換個地區或月份再試一次」。**選加鈕**，因為手機上
     重設四個 `<select>` 要點八下
-  - **loading 超過 8 秒要換一段文案。** 冷機器加上 15 秒的上游 timeout，
-    最壞情況是 20 秒的骨架動畫配一片安靜。8 秒後把 skeleton 上方的文字換成
+  - **loading 超過 8 秒要換一段文案。** cache miss 加上 15 秒的上游 timeout，
+    最壞情況是 15 秒的骨架動畫配一片安靜。8 秒後把 skeleton 上方的文字換成
     「第一次查詢比較慢，正在向文化部要資料」，讓使用者知道站沒死。
-    不做取消鈕（多一個狀態要管），但這段文案不可省
+    不做取消鈕（多一個狀態要管），但這段文案不可省。
+    （注意：Render 冷啟動喚醒的那 1 分鐘，使用者看到的是 Render 自己的原生 loading 頁，
+    本站的 8 秒文案是在進站後的搜尋等待時生效）
+  - **API 回應錯誤與非 JSON 時需有統一錯誤分類，分出「可重試」與「不可重試」。**
+    分頁開著超過 15 分鐘再按搜尋，服務若已 spin down，`fetch` 打到的是喚醒中的服務，
+    可能拿到 Render 的 HTML 錯誤/喚醒頁面而不是 JSON：
+    1. **可重試 (TransientError)**：包含 HTTP 502/503、網路斷線/逾時、非預期 HTML 回應（`res.json()` 解析失敗）。
+       UI 顯示「連線逾時或服務喚醒中，請稍候再試」，並附「重試」按鈕。
+       **絕不可將非 JSON 或 503 逕行顯示為「文化部資料庫故障」**，避免誤導排查與使用者。
+    2. **文化部上游故障 (UpstreamError)**：後端明確回傳 502 且 JSON payload 為 upstream error 時，
+       才顯示「文化部資料來源暫時無法使用，請稍後再試」，並附「重試」按鈕。
+    3. **不可重試 (ClientError)**：HTTP 400（參數無效）或 404（不支援國家），
+       顯示輸入驗證提示，不提供無效的重試按鈕。
+    Phase 5 驗收要實測一次非 JSON 回應情境（§8.2）
   - **About 頁**：合併原 tech_stack 頁內容（tech stack 表 + 作者連結），同樣走毛玻璃面板
 - **視覺方向（已凍結，POC v27）**：毛玻璃 (glassmorphism)。深色抽象背景
   (`radial-gradient(circle at 80% 20%, #1e1812 0%, #05070f 65%)`)；
@@ -369,6 +389,8 @@ POC 保留在 `docs/poc/` 作 design reference，不是丟棄式產物。
    `backend` 加進 `ALLOWED_HOSTS`，兩種寫法都涵蓋。
 
 ### 4.3 可測性與 a11y 的最低要求
+
+> **範圍決策（Owner 於 2026-10-02 確認）**：本節所有可測性與 a11y 規範皆為 MVP 必備品質要求，不拆分延後，全數在 Phase 3 前端開發時一次落實到位。
 
 - **有分支的邏輯抽成純函式放 `utils/`**，配 vitest。目前有兩處：
   年月字串切片重組、切國家時重設 location/category。元件本身不寫 render test。
@@ -492,7 +514,32 @@ v4 把兩者寫在同一個 target 裡，而 `frontend/` 要到前端 scaffold �
 
 ## 6. 部署
 
-### 6.1 Phase 5 目標平台：Fly.io
+### 6.1 Phase 5 目標平台：Render free web service
+
+**首次建置與 Render 設定流程（dashboard 點一次，同一張表抄進 README）：**
+
+1. **GitHub 授權**：Render 首次連結 GitHub 時，選擇僅授權存取本專案 repo（`culture_event_finder_v2`）。
+2. **SECRET_KEY 產生**：本機執行 `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"` 或 `openssl rand -hex 32` 產生安全隨機字串。
+3. **先建服務獲取真實網址**：Render 的 subdomain 若被全域佔用，會自動加上後綴亂數（例如 `culture-event-finder-xxxx.onrender.com`）。**必須先在 Render 建立 Web Service，查看 dashboard 分配到的真實 URL，再將其填入 Environment 的 `ALLOWED_HOSTS`**，不可憑空臆測預填，否則 health check 會因 DisallowedHost 噴 400 導致部署被取消。
+
+| 項目 | 值 | 理由 |
+|---|---|---|
+| Runtime | Docker，Dockerfile Path 留空（repo root） | 與 Cloud Run 共用同一個 Dockerfile |
+| Instance type | Free | 不用綁卡；512 MB RAM、0.1 vCPU |
+| Region | Singapore | 離台灣最近 |
+| Health Check Path | `/health` | 新版沒通過 check 就不切流量（見下） |
+| Auto-Deploy | After CI Checks Pass，branch `master` | CI 紅燈不部署（§6.2）；亦可依 build 配額策略設為手動 |
+| 環境變數 | `SECRET_KEY`、`ALLOWED_HOSTS` | §11，`ALLOWED_HOSTS` 填 dashboard 實際分配之網址 |
+
+Free instance 的限制（Render 官方文件查證核實）：
+
+- **閒置 15 分鐘 spin down**：15 分鐘無 inbound 流量即休眠，下一個 request 喚醒約需 1 分鐘（期間 Render 顯示原生載入頁）。
+- **每月 750 free instance hours**：每個 workspace 每月共 750 小時。**本 workspace 只放這一個 free 服務**，額度算法見 §6.5。
+- **每月 500 分鐘 build 時間（Build Pipeline）**：所有 free 服務共用 500 分鐘/月。Docker 多階段 build（Node 22 + Python 3.13 + collectstatic）在 Render 每次耗時約 3~5 分鐘。若直接在 master 開發且每次 push 都觸發 build，約 100 次 commit 就會用盡配額導致當月無法部署。**對策**：非程式碼變更（如只改 docs/README）不觸發部署，或在密集開發期將 Auto-Deploy 設為手動，待階段功能完備再點擊部署。
+- **每月 5 GB 出站流量（Outbound Bandwidth）**：超過後服務將強制暫停至下月 1 號。需避免頻繁大封包或無效高頻監控。
+- filesystem 是 ephemeral（本專案無 DB、無檔案寫入，不受影響）。
+- 不能 scale 超過一個 instance（剛好是 §3.3 LocMemCache 要的）。
+- 沒有 shell 可以進 instance。
 
 - **Multi-stage Dockerfile**（repo root）：
   stage 1 (`node:22-slim`) `vite build` → stage 2 (`python:3.13-slim`) Django + gunicorn，
@@ -511,8 +558,11 @@ v4 把兩者寫在同一個 target 裡，而 `frontend/` 要到前端 scaffold �
   `<img src="/hero.png">` 不會被加前綴，dev 正常、prod 404。
   對策是 CI 的 build-smoke 放一個 `public/` 資產並 curl 它（§6.2）。
 - prod stage 也要跑 non-root user。dev container 有做而 prod 沒做是反過來的。
-- CMD：`gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:${PORT:-8080}
-  --workers 1 --threads 8 --worker-class gthread --timeout 60`
+- **CMD 語法限制**：必須使用 shell 形式，或以 `sh -c "exec ..."` 執行：
+  ```dockerfile
+  CMD exec gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --worker-class gthread --timeout 60
+  ```
+  **嚴禁寫成 JSON 陣列直接傳遞 `${PORT}`**（例如 `CMD ["gunicorn", ..., "${PORT}"]`）：exec 形式不會經由 shell 展開環境變數，`${PORT}` 會維持原樣字串傳給 gunicorn，導致 port 解析失敗、container 啟動直接 crash！
 
 #### ⚠️ build 期的 SECRET_KEY
 
@@ -521,12 +571,10 @@ v4 把兩者寫在同一個 target 裡，而 `frontend/` 要到前端 scaffold �
 settings 的 fail-fast 守衛（見下）在 `collectstatic` 執行時就會觸發：
 build 環境沒有 `DEBUG` 也沒有 `SECRET_KEY`，於是直接 `ImproperlyConfigured`，
 `docker build` 失敗。連帶本機 smoke test、CI 的 build-smoke job、
-`make run-prod`、Fly 的 remote build 全部起不來。
+`make run-prod`、Render 的 build 全部起不來。
 
 必須做到：collectstatic 那一行帶 build-only 假值。**`ALLOWED_HOSTS` 同樣是
-fail-fast，所以兩個都要帶，只帶 `SECRET_KEY` 那行是跑不起來的**
-（v4 在本節與 Global Constraints 都漏了 `ALLOWED_HOSTS`，照抄的人會在
-「這一節本來要防的那一步」build 失敗）：
+fail-fast，所以兩個都要帶，只帶 `SECRET_KEY` 那行是跑不起來的**：
 
 ```dockerfile
 RUN SECRET_KEY=build-only-not-used ALLOWED_HOSTS=build-only \
@@ -539,39 +587,35 @@ RUN SECRET_KEY=build-only-not-used ALLOWED_HOSTS=build-only \
 同樣的道理，`make test` 與 CI 的 `test-backend` 也要注入假 SECRET_KEY，
 否則本機測試與 CI 一起掛。
 
-#### ⚠️ PORT：Fly 不注入 `$PORT`
+#### PORT：Render 與 Cloud Run 都會注入 `$PORT`
 
-Cloud Run 會自動注入 `$PORT`；**Fly.io 不會**：Fly 是靠 `fly.toml` 的
-`[http_service].internal_port` 指定容器監聽哪個 port。
+Render 預設注入 `PORT=10000`，Cloud Run 預設注入 `PORT=8080`。
+CMD 用 `${PORT:-8080}`，兩個平台都吃平台給的值，本機 `make run-prod` 吃預設的 8080。
+Dockerfile 保留 `ENV PORT=8080` 當本機預設值。
+(推論：平台在 runtime 注入的 `PORT` 會蓋過 image 的 `ENV`，這是 container env 的一般行為；
+Phase 5 首次部署時看 Render log 的 gunicorn `Listening at` 那一行確認是 10000)
 
-若 Dockerfile 用 `${PORT:-8080}` 而 `fly.toml` 仍是現有的 `internal_port = 8787`，
-容器會監聽 8080、Fly proxy 打 8787 → 兩邊對不上。
-搭配 `min_machines_running = 0`（scale-to-zero），**壞掉不會立刻被發現**。
+部署驗證用 `curl`，不可只用瀏覽器（瀏覽器可能吃到快取而誤判成功）。
 
-必須做到：
-- Dockerfile 加 `ENV PORT=8080`
-- `fly.toml` 的 `internal_port` 改為 `8080`
-- 部署驗證用 `curl`，不可只用瀏覽器（瀏覽器可能吃到快取而誤判成功）
+#### ⚠️ 不可以在 Dockerfile 宣告 `ARG SECRET_KEY`
 
-#### ⚠️ fly.toml 必須定義 HTTP health check
+Render 會把 dashboard 上的環境變數自動轉成 Docker build argument。
+Dockerfile 只要出現 `ARG SECRET_KEY`，真正的 key 就會在 build 期被帶進 image layer。
+本專案 build 期只需要 collectstatic 那一行的假值（上一節），**Dockerfile 裡不准有任何 `ARG`
+對應到 §11 的變數**。驗收：`grep -n "^ARG" Dockerfile` 應為無命中。
 
-`[http_service]` 不會自動生出 HTTP health check，要自己寫 `[[http_service.checks]]`。
-沒有它的話，port 對不齊時 `fly deploy` 會**回報成功**、machine 起得來、proxy 打不到，
-然後靜默壞掉。(推論：Fly 在無 check 時是否仍做 TCP 層等待，未查到官方明文)
+#### Health check：Render 會等新版通過才切流量
 
-check 要**同時**帶 Host header，否則會被 `ALLOWED_HOSTS` 擋成 400，
-變成「加了 check 反而部署失敗」：
+Health Check Path 設 `/health`。Render 的行為（官方文件）：
 
-```toml
-[[http_service.checks]]
-  grace_period = "10s"
-  interval = "30s"
-  method = "get"
-  path = "/health"
-  timeout = "5s"
-  [http_service.checks.headers]
-    Host = "taiwan-culture-event-info.fly.dev"
-```
+- check 送的 `Host` header 是服務的 `onrender.com` 網域（有自訂網域時改用自訂網域）
+- 5 秒內回 2xx 或 3xx 算通過
+- 新版所有 instance 同時通過 check，才開始把流量導過去；15 分鐘內沒通過就取消這次 deploy，
+  流量留在舊版
+
+所以 port 對不上或 process 起不來時，結果是「deploy 失敗、舊版照常服務」，
+不是「deploy 成功、站靜默壞掉」。**前提是 `ALLOWED_HOSTS` 含 `onrender.com` 網域**，
+否則 check 拿到 400，每一次 deploy 都會被取消。
 
 #### ⚠️ SECRET_KEY 與 ALLOWED_HOSTS 都要真的 fail-fast
 
@@ -580,156 +624,132 @@ check 要**同時**帶 Host header，否則會被 `ALLOWED_HOSTS` 擋成 400，
 
 - `SECRET_KEY`：非 dev 且未注入 → `ImproperlyConfigured`。
 - `ALLOWED_HOSTS`：非 dev 且環境變數不存在 → `ImproperlyConfigured`，**不留 fallback**。
-  留 fallback 的話漏注入時 Django 照常啟動、Fly 的 check 照樣綠燈，
-  只有真實使用者拿到 400 DisallowedHost。
+  漏注入時 process 起不來，Render 的 health check 不會過，這次 deploy 被取消，
+  不會有「站看起來活著、使用者全拿 400」的中間態。
 
-dev 的判定用顯式訊號（`DJANGO_ENV` 或 `DEBUG=True`），不要用「沒設就當 prod」，
-那會讓 build 與測試一起被守衛擋下。
+prod 網域一律由平台的環境變數注入（Phase 5 是 Render dashboard 的 Environment，
+Phase 6 換成 Cloud Run），fallback 只涵蓋 local dev，刻意不含 `.onrender.com`。
+**不讀 Render 自動注入的 `RENDER_EXTERNAL_HOSTNAME`**：那會讓 settings 綁死 Render，
+Phase 6 還要再拆掉。
 
-prod 網域一律由平台的環境變數注入（Phase 5 是 `fly.toml` 的 `[env]`，
-Phase 6 換成 Cloud Run），fallback 只涵蓋 local dev，刻意不含 `.fly.dev`。
-
-dev 的判定**只實作 `DEBUG` 一個訊號**。v4 的內文寫「`DJANGO_ENV` 或 `DEBUG`」
-但 settings 只讀 `DEBUG`，README 又只列 `DJANGO_ENV`，三處各說各話。
-統一成 `DEBUG`，環境變數表也只留 `DEBUG`。
+dev 的判定**只實作 `DEBUG` 一個訊號**。環境變數表也只留 `DEBUG`，沒有 `DJANGO_ENV`。
 
 ### 6.2 CI/CD
 
-**GitHub Actions**（push master）四個 job：
+**GitHub Actions**（push master 與 PR）三個 job：
 
-1. `test-backend`：pytest（要注入假 SECRET_KEY）
+1. `test-backend`：pytest（要注入假 SECRET_KEY 與 ALLOWED_HOSTS）
 2. `test-frontend`：vitest
 3. `build-smoke`：真的 `docker build` 起 container，curl `/health`、`/`、
    `/api/v1/countries`、一個放在 `public/` 的資產（驗 §6.1 的 base path），
    以及一個不存在的路徑（驗 SPA catch-all 回 200 不是 500）。
    失敗時要 `docker logs`（`if: failure()`），
    否則只看得到 curl 的非零離開碼，分不出是啟動失敗還是路由不對。
-4. `deploy`：`needs: [test-backend, test-frontend, build-smoke]`，
-   `if: github.ref == 'refs/heads/master'`，用 `flyctl deploy` + `secrets.FLY_API_TOKEN`
 
-紅燈不部署。**不需要** `permissions.id-token: write`（那是 Workload Identity Federation
-用的，Phase 6 才需要）。
+**沒有 deploy job。** 部署交給 Render 的 Auto-Deploy「After CI Checks Pass」：
+master 有新 commit 時，Render 等這個 commit 的 CI checks 全部通過才 deploy，紅燈不部署。
+所以 CI 不需要任何部署用的 token，也不需要 `concurrency` group。
 
-**build-smoke 不可以打真實的 MoC。** v4 讓它 curl events endpoint 再
-`grep -q 'events'`，兩個問題：政府 API 一有狀況你的 pipeline 就紅燈且擋住 deploy；
+**build-smoke 不可以打真實的 MoC。** 政府 API 一有狀況 pipeline 就紅燈且擋住 deploy；
 而且 `grep -q 'events'` 對 `{"events": []}` 也會過，正是 §8.1 明文拒絕的通過條件。
 contract 漂移由 `test-backend` 的 `responses` mock 負責，
-真實 MoC 的驗證留在後端 checkpoint 與 cutover 那兩個人工關卡。
-
-**workflow 要有 `concurrency` group。** 單一 machine 就地替換，
-兩次快速 push 會讓兩個 `flyctl deploy` 對同一台機器賽跑。
+真實 MoC 的驗證留在後端 checkpoint 與 Phase 5 驗收那兩個人工關卡。
 
 `astral-sh/setup-uv` 用 `v10`。
 
 **repo 維持 public。** build-smoke 每次 PR 與 push 都跑一次完整 multi-stage build，
 public repo 的 Actions 分鐘數不計費；轉 private 的話免費額度是 2000 分鐘/月，
-密集開發期會在月中耗盡，deploy job 排不進去。改名 repo 時不要動 visibility。
+密集開發期會在月中耗盡。
 
 ### 6.3 依賴管理單一來源：uv
 
 `pyproject.toml` (PEP 621) + `uv.lock` 是 source of truth；
 Dockerfile 用 `uv sync --frozen --no-dev`。
-刪除 `requirements.txt` 與 Poetry 設定，消除 split-brain。
+新 repo 從 `uv init` 開始，不建立 `requirements.txt`，不用 Poetry。
 
-- **`pyproject.toml` 必須真的沒有 `[build-system]` 與 `[tool.poetry]`。**
-  留著的話 uv 會判定這是要 build 的 package，而 Dockerfile 只 COPY 了
+- **`pyproject.toml` 不可以有 `[build-system]`。**
+  有的話 uv 會判定這是要 build 的 package，而 Dockerfile 只 COPY 了
   `pyproject.toml` 與 `uv.lock`（沒有 source、沒有 README），build 會失敗。
-  遷移後要有一個機械可判的驗收：`grep -q "build-system\|tool.poetry" pyproject.toml`
-  應為無命中。
+  `uv init` 預設產生的是 application 專案（無 `[build-system]`），**不可以加 `--package` 或 `--lib`**。
+  機械可判的驗收：`grep -q "build-system" pyproject.toml` 應為無命中。
 - **dev 用的 container 需要 pytest 等 dev dependencies，`uv sync --frozen`
   不可加 `--no-dev`。** 只有 prod Dockerfile 才加。
 - uv binary 釘特定版號（`ghcr.io/astral-sh/uv:0.12.5`），勿用 `:latest`。
-  三處（backend dev Dockerfile、prod Dockerfile、Global Constraints）要一致。
+  三處（backend dev Dockerfile、prod Dockerfile、依賴與 CI 定義）要一致。
 
-### 6.4 branch 策略（必須遵守）
+### 6.4 branch 策略
 
-**Phase 0–5 全程在 feature branch 進行，只有 Phase 5 部署驗證通過後才 merge master。**
+**直接在 master 開發。** 本 repo 在 Phase 5 之前沒有任何部署管線，master 壞了也不會影響任何線上服務。
 
-（v4 這一行寫「Phase 0–3」，配上 §1 的舊編號會被讀成「前端做完就 merge」。
-判準不是 phase 編號而是這件事：**master 上的舊 CI 還在跑已被刪掉的 app 的測試，
-所以 merge 的時間點必須晚於新 CI 上線。**）
+Phase 5 接上 Render 之後，master 的每一個 CI 綠燈 commit 都會自動部署，
+master 從那一刻起就是 prod。之後的大改動（Phase 6 等）開 branch，走 PR 合回 master。
 
-原因：master 上現有的 `.github/workflows/deploy.yml` 硬編路徑跑
-`culture/tests.py`、`tech_stack/tests.py`。清理階段刪除這些 app 後若誤 merge 進 master，
-任何後續 push（含緊急 hotfix）都會在 test 步驟失敗，`flyctl deploy` 永遠跑不到，
-**prod 卡死在最後一個成功版本且無告警**。
+### 6.5 上線、rollback、關掉 v1
 
-若 prod 期間需要 hotfix：直接在 master 上改，事後 rebase 進 feature branch。
+#### 上線不是 cutover
 
-### 6.5 rollback 手續
+v2 是一個新的 Render 服務、新的網址（`<服務名>.onrender.com`），v1 在 Fly 上繼續跑。
+兩個站並存，所以首次部署失敗不會讓任何人看到掛掉的站，不需要停機窗口、staging 演練或 rollback tag。
 
-Fly 的 rollback 是 `fly releases --image` 取得舊 image hash，
-再 `fly deploy -i <sha>`。**但 rollback 不會還原 config**：fly.toml / env / secrets 一律使用當前版本。
+切換的動作是 owner 把新網址傳給朋友，時間點由 owner 決定，發生在 Phase 5 驗收通過之後。
 
-這代表：若已把 `internal_port` 從 8787 改成 8080，滾回舊 image（監聽 8787）
-會配上新 fly.toml，**rollback 指令執行成功但服務仍然不通**。
+#### rollback
 
-**所以本專案的 rollback 路徑不是 `fly deploy -i <sha>`。** 那個指令只換 image，
-而壞掉的組合正是「新 config 配舊 image」。真正的路徑是：
+兩層，由淺到深：
 
-```bash
-git checkout pre-phase5-fly-config && fly deploy
-```
+1. **Render dashboard 的 Rollback**：退回某一次舊 deploy。官方文件寫明環境變數會跟著
+   退回那次 deploy 的值，所以不會出現「新設定配舊 image」的組合。
+   **rollback 會自動關掉 Auto-Deploy**，修好之後要回 Settings 把它設回
+   「After CI Checks Pass」，不然之後 push 都不會部署。這一行要寫進 README。
+2. **v1 還在**：v2 整個不能用的時候，請朋友先用 v1 的網址。這一層只在 v1 關掉之前有效。
 
-也就是連 config 一起滾回、完整重 build，要好幾分鐘。**這一行必須寫進 README，
-不能只寫在 spec 裡**：半夜第一個伸手的人會照直覺去換 image，
-然後得到一個「rollback 成功但站還是不通」的結果，並開始懷疑 Fly 壞了。
+(推論：Render 保留的舊 build 數量依 workspace plan 而定，官方沒寫 Hobby 是幾個；
+第 1 層退不回太舊的版本時，改用 `git revert` 推一個新 commit 讓 CI 部署)
 
-必須做到：
-- 改 Dockerfile / fly.toml **之前**，先 `fly releases --image` 記下當前 sha
-- fly.toml 變更前打 git tag `pre-phase5-fly-config`，這個 tag 名字要寫進 README
-- **`fly volumes destroy` 要延後。** 舊 image 的設定吃 `/web/db` 的 sqlite volume，
-  volume 一刪 rollback 路徑就永久斷了。等新版穩定跑滿一週再刪，
-  不要跟部署驗證同一天。刪之前先 `fly volumes list` 確認 id
+#### 關掉 v1
 
-#### prod cutover 是一個明確的時間點
+> **架構邊界（Owner 於 2026-10-02 決策）**：v1 是 v1、v2 是 v2，兩者完全獨立。不侵入修改 v1 程式碼加跳轉 banner。
 
-首次 `flyctl deploy` 到現役 app 就是正式切換，**不是 dry-run**。
-這一步之後現網從 Jinja2 舊站變成新 SPA；若 PORT、SECRET_KEY、ALLOWED_HOSTS
-任一出錯，舊 machine 已被替換，站是掛的，而此時 CI 還沒接好。
+v2 上線並穩定一週之後，owner 在 v1 執行下線清單（避免殘留扣款或幽靈告警）：
 
-做這一步之前必須確認：health check 已在 `fly.toml` 裡、
-`fly secrets list` 看得到 `SECRET_KEY`、`fly config validate` 通過。
+1. **停用定時工作**：停用或移除 v1 repo 的 GitHub Actions scheduled workflows（若有），避免停機後定時發出誤報失敗信。
+2. **撤銷 Token**：撤銷 Fly.io 的 Deploy Token（從 GitHub Secrets 與本機環境清理）。
+3. **備份與銷毀 Volume**：若 SQLite 資料庫有留存需求先作備份；確認後執行 `fly apps destroy taiwan-culture-event-info`（連同其 `sqlite_data` volume 一起徹底刪除）。
+4. **檢查帳單**：確認 Fly dashboard 的 Billing 沒有其他殘留計費項目。
+5. **文件備註**：v1 README 第一行加「已由 culture_event_finder_v2 取代」與新網址。
 
-**`fly config validate` 只驗語法，證不了這一節在乎的任何一件事。**
-port 對不對得上、health check 的 Host header 會不會被 `ALLOWED_HOSTS` 擋，
-兩者都要到真的部署才現形。這是 Fly 的先天限制，不是可以補的驗收，
-所以下面那個 staging 演練不是選配。
-
-想無風險演練的話，開一次性的 app：`fly apps create cef-staging`
-+ `flyctl deploy -a cef-staging`，驗完 `fly apps destroy cef-staging`。
-**演練時要帶 `-e ALLOWED_HOSTS=cef-staging.fly.dev`**：不帶的話這場演練
-剛好跳過風險最高的那個變數，等於演了一場沒有主角的戲。
-
-**cutover 本身有停機。** 單一 machine 就地替換，最少 10 到 30 秒，
-失敗的話沒有上限。要縮短就在切換前 `fly scale count 2`，
-讓 rolling 策略有地方轉移流量，驗完再 `fly scale count 1`。
-（維持兩台會讓 §3.3 的 LocMemCache 上界假設破功，所以是暫時的。）
+不急著關的話也沒有技術風險，只是 v1 若不是 grandfathered 免費額度就每個月在扣錢
+（停著的 machine 收 rootfs 費用、volume 另外收費）。
 
 #### 監控設定
 
-**一個 monitor，每 30 分鐘，打真實搜尋 URL。**（owner 於 2026-08-23 選定省錢方案）
+**一個 GitHub Actions scheduled workflow，每 30 分鐘，打真實搜尋 URL。**
 
-- 目標：`/api/v1/tw/events?category=6&location=臺北&month=<當月>`，
-  對 HTTP 502 或 `"events": []` 告警。理由見 §3.4：只打 `/health` 或
-  讀 cache 旗標的監控，在 MoC 掛掉時照樣是綠燈
-- 頻率不可以是 5 分鐘。`min_machines_running = 0` 的省錢設定要成立，
-  前提是機器真的會停；每 5 分鐘打一次會讓它 24 小時醒著，
-  等於付了常開的錢卻拿到 scale-to-zero 的冷啟動體驗。v4 排了兩個 5 分鐘的 monitor，
-  正是這個組合
-- 代價要講清楚：機器停著的時候，使用者第一次搜尋最壞要等 20 秒
-  （冷啟動加上上游 15 秒 timeout），而且 cache 是空的。
-  §4 的「loading 超過 8 秒換文案」就是為這個情境寫的
-
-另外 `fly secrets set` 會立刻觸發一次現役 app 的 release 與 machine 重啟。
-舊 code 不吃這個 secret 所以無害，但那不是無副作用的指令。
+- 目標：`/api/v1/tw/events?category=6&location=臺北&month=<當月>`。
+- **嚴格正向白名單判定（P1 必改）**：
+  **「HTTP status 200 且 response 為有效 JSON 且 events 陣列長度大於 0 才算成功；其他所有狀態一律判定失敗」。**
+  舊設計若只檢查排除 502 或 `[]`，遇到 Render 冷啟動中吐出的 HTML 載入頁、配額用盡的暫停頁面、Django 500 內部錯誤等情況，全都會被誤判為正常綠燈！必須以 `jq -e '.events | length > 0'` 嚴格驗證。
+- **`curl --max-time 120`。** 每 30 分鐘一次大於 Render 的 15 分鐘 spin down，
+  所以幾乎每一次監控都會遇到睡著的服務：喚醒大約 1 分鐘，加上 cache 空的時候上游最多 15 秒。
+  timeout 設 30 秒的話每一次都會誤報。
+- cron 寫 `17,47 * * * *`，避開整點。GitHub 官方文件寫整點是高負載時段，schedule 會延遲。
+- **告警通知對象**：走 GitHub workflow 失敗通知 email。依 GitHub Actions 規則，定時 schedule workflow 的失敗郵件會發送給**「建立該 workflow 的人」或「最後 commit 修改該 workflow 檔案的人」**。
+- **public repo 60 天沒有任何活動，GitHub 會自動停用 scheduled workflow。**
+  專案進入維護期後這是最可能讓監控默默消失的原因。README 的「這幾樣東西不會自己告訴你」
+  要列這一條，處理方式是每兩個月看一次 Actions 頁面有沒有被停用。
+- 頻率不可以更密。每 30 分鐘一次已經讓服務一天大約醒 12 小時
+  （每次喚醒後撐 15 分鐘才睡），一個月大約 372 小時，加上真人流量仍在 750 小時內。
+  改成每 10 分鐘會讓服務 24 小時醒著，一個月 744 小時，貼著上限，
+  一有真人流量疊加就可能在月底被停到下個月（推論：依 750 小時規則推算）。
+- 代價要講清楚：服務睡著時，使用者打開網址最壞要等大約 1 分鐘（看到的是 Render 的
+  loading 頁），進站後第一次搜尋若 cache miss 再等最多 15 秒。
 
 ### 6.6 Phase 6：遷移 Cloud Run（另開 branch）
 
 GCP 一次性 infra 用 **Terraform** 管理（owner 指定，作為 IaC 學習）：
 enable APIs、deployer service account + IAM roles、Workload Identity Federation、
 billing budget alert。App 部署不進 Terraform（CI 的 `gcloud run deploy` 負責）；
-tfstate 存本機並 gitignore。
+tfstate 存本機並 gitignore。CI 加回 deploy job，需要 `permissions.id-token: write`。
 
 $0 目標的真實條件：
 
@@ -751,46 +771,34 @@ $0 目標的真實條件：
   半年後看到 429 的人要能在 README 找到這句話。
 - billing budget alert 設在 $1，不是 $10。目標是 $0，$1 就該收到信。
 - 2026-02-03 起部分服務要求開啟 billing，信用卡一定要綁。
+- `ALLOWED_HOSTS` 改成 Cloud Run 的網域；Render 的 Auto-Deploy 改成 Off。
 
-遷移順序：Cloud Run 上線並驗證數天後，才 `fly apps destroy` 並刪除 `fly.toml`，不空窗。
+遷移順序：Cloud Run 上線並驗證數天後，才刪掉 Render 服務，不空窗。
+網址又會換一次，要再通知朋友一次（有自訂網域的話不用）。
 
-**Phase 0 的 blocking 前置**：owner 必須先查 fly.io dashboard 的 billing，
-確認是否吃 grandfathered 免費額度（Fly 於 2024-10-07 對新用戶取消免費方案，
-舊有用戶保留原額度，但方案一改就回不去）。若確認在扣錢，
-Phase 6 必須設定明確 deadline（建議 Phase 5 上線後 30 天內），不可停留在「隨時做」。
+## 7. 從 v1 移植的清單
 
-註：停著的 machine 仍收 rootfs 費用（每 1 GB 停機 30 天 $0.15），
-volume 是 $0.15/GB/月，所以 §6.5 那顆孤兒 volume 拖著不刪是有成本的。
+本 repo 從零開始，**沒有要刪的舊 code**。v1 的程式碼只當參考，需要的部分照下表移植，
+其餘一律不帶過來。v1 路徑以 v1 repo root 為準。
 
-## 7. 清理清單
+**要移植（改寫進新結構，不是整檔複製）：**
 
-刪除：
+| v1 檔案 | 移植到 | 拿什麼 |
+|---|---|---|
+| `main_project/culture/data.py` | `backend/events/providers/taiwan.py` | Location 與 EventCategory 清單，補上宜蘭與連江（§3.2） |
+| `main_project/culture/views.py` | `backend/events/providers/taiwan.py` | MoC API URL（`cloud.culture.tw/frontsite/trans/SearchShowAction.do`）、query 參數、SSL `verify=False` 與 `urllib3.disable_warnings`（第 9 到 30 行） |
+| `main_project/tech_stack/templates/tech_stack.html` | `frontend` 的 About 頁 | tech stack 表的內容與作者連結 |
+| `main_project/health_check/` | `backend/health/` | 只拿概念：`/health` 回 200，不碰外部依賴 |
 
-- `main_project/main_project/templates/backup.html`（425 行未使用）
-- `main.py`（PyCharm 產生的 hello world）
-- Material Dashboard 全部 static assets 與模板
-- Select2 / FontAwesome / Google Fonts 等 CDN 依賴
-- `tech_stack` app（內容併入前端 About 頁）
-- `culture` app、`utility/`
-- `requirements.txt`、Poetry 設定
-- `deployment_tcei/`（舊 Dockerfile 與 docker-compose 所在目錄）
+**不移植**：Material Dashboard 全部 static assets 與模板、Select2 / FontAwesome /
+Google Fonts 等 CDN 依賴、`utility/`（logging 改用 toolkitsy）、`main.py`、
+`backup.html`、`deployment_tcei/`、Poetry 與 `requirements.txt`、`fly.toml`、
+v1 的 `.github/workflows/deploy.yml`。
 
-**保留（不可刪）**：
+**`docs/poc/` 已經在本 repo**，是視覺 design reference（§4.1），唯讀。
 
-- `fly.toml`：Phase 5 仍要用它部署，Phase 6 遷移完成後才刪
-- `docker-compose.dev.yml`、`backend/Dockerfile.dev`、`frontend/Dockerfile.dev`
-- `docs/poc/`：視覺 design reference（§4.1）
-- `health_check`（改為 `backend/health/`）
-- SSL workaround（封裝進 provider）
-
-**大量刪除要有機械可判的完成條件。** Material Dashboard 那批靜態資源不可以靠
-`grep | head -20` 臨場判斷（`head` 本身就會截斷）。做法是先導出完整清單到檔案、
-人工掃過、刪完用 `git ls-files | grep -ci material` 期望輸出 0 當驗收。
-刪除前打 `git tag pre-cleanup`，刪錯就 `git checkout pre-cleanup -- <path>` 拿回單檔。
-
-**`.gitignore` 必須加 `staticfiles/`。** `STATIC_ROOT` 指向它，`.dockerignore`
-有排除但 `.gitignore` 沒有，而清理階段用的是 `git add -A`。
-只要在那之前本機跑過一次 `collectstatic`，整包 build 產物會被 commit 進去。
+**`.gitignore` 必須有 `staticfiles/`。** `STATIC_ROOT` 指向它，
+只要本機跑過一次 `collectstatic`，`git add -A` 就會把整包 build 產物 commit 進去。
 
 HTTP 請求：toolkitsy 尚無 http 模組（PyPI 0.1.0 已驗證）。
 暫用 `requests` 並集中在 provider 檔案；toolkitsy 發版後單檔替換。
@@ -827,11 +835,11 @@ HTTP 請求：toolkitsy 尚無 http 模組（PyPI 0.1.0 已驗證）。
 - **cache 那一層要留一行 log。** v4 的 cache-aside 只對 `MagicMock` 驗過，
   而且整個專案沒有任何一行印出 cache 是 hit 還是 miss。
   加 `logger.info("cache %s key=%s", ...)` 之後，那個 task 當場可以本機驗
-  （同一個查詢跑兩次看 log），而且 cutover 的驗收不用再靠回應時間去猜。
-- **清理階段結束前的本機 prod-like container smoke test**：
+  （同一個查詢跑兩次看 log），而且 Phase 5 的驗收不用再靠回應時間去猜。
+- **Phase 4 結束前的本機 prod-like container smoke test**：
   `docker build` + `docker run` + curl `/health`、`/`、`/api/v1/countries`。
-  目的是把「目錄重構是否正確」與「prod 環境能否啟動」這兩個變數拆開驗證，
-  不讓它們疊在唯一一次真實部署裡。
+  目的是把「image 本身能不能啟動」與「Render 平台設定對不對」這兩個變數拆開驗證，
+  不讓它們疊在第一次真實部署裡。
 - CI 三個 test job 都跑。
 
 ### 8.1 checkpoint 的通過條件不可以無法證偽
@@ -849,29 +857,28 @@ HTTP 請求：toolkitsy 尚無 http 模組（PyPI 0.1.0 已驗證）。
 
 - 錯誤畫面：`docker compose stop backend` 後按搜尋
 - 空結果畫面：指定一個確定沒活動的月份
+- 服務睡著時的搜尋（Phase 5）：開著分頁等超過 15 分鐘再按搜尋，
+  要看到錯誤畫面加重試按鈕，或正常結果；不可以是白畫面或 console 的 JSON parse error（§4）
 
 否則 ErrorMessage 這個元件在整個開發過程中一次都不會被執行到。
 
 ## 9. 里程碑
 
 ```
-Phase 0：規劃 ✅（2026-08-23 完成）
-  spec + plan 定稿（本文件 + plan v5）
+Phase 0：規劃 ✅（2026-10-02 完成）
+  spec v6 定稿（本文件），plan v6 待寫
   POC HTML → owner 確認（gate）✅ docs/poc/20260719_155200_ui_design_v27.html
-  owner 查 fly.io billing（blocking）：尚未回報，第一個 task 開工前必須完成
-  結束狀態：plan 定稿、視覺方向凍結、Phase 6 是否需要 deadline 已確定
+  結束狀態：plan 定稿、視覺方向凍結、hosting 定為 Render free
 
 Phase 1：骨架先立好
-  uv 遷移 → 目錄重構成 backend/ + config/ + 全新 settings → dev compose
+  uv init → backend/ + config/ + 全新 settings → dev compose
   → 前端 scaffold（Vite + React + TS + Tailwind + Vitest）
-  結束狀態：新目錄結構下 Django 起得來、make test 前後端都跑得動、make dev 兩個
-  service 都起得來
-  （前端 scaffold 排進 Phase 1 而不是 Phase 3：makefile 與 compose 因此只寫一次，
-    而且 make test 從這裡開始到收工都是可用的。v4 把它排在後端之後，
-    導致中間三個 task 期間 make test 會在 cd frontend 那行 abort）
+  結束狀態：Django 起得來、make test 前後端都跑得動、make dev 兩個 service 都起得來
+  （前端 scaffold 排進 Phase 1：makefile 與 compose 只寫一次，
+    make test 從這裡開始到收工都是可用的）
 
 Phase 2：後端
-  providers → services → API endpoints（★ checkpoint：打真實 MoC）
+  providers（從 v1 移植，§7）→ services → API endpoints（★ checkpoint：打真實 MoC）
   結束狀態：API 回得出真實資料，跨月與異體字都驗過
 
 Phase 3：前端
@@ -879,19 +886,19 @@ Phase 3：前端
   → App 組裝 + About（★ checkpoint：全流程手動 E2E）
   結束狀態：docker-compose 起得來，SPA 打新 API 全流程可用
 
-Phase 4：清理與 prod image
-  刪舊 apps/assets → prod Dockerfile + 本機 prod-like smoke test（★ checkpoint）
-  → repo 改名 + README
-  結束狀態：codebase 乾淨，prod 仍是 Fly 上的舊版
+Phase 4：prod image 與文件
+  prod Dockerfile + 本機 prod-like smoke test（★ checkpoint）→ CI 三個 job → README
+  結束狀態：CI 綠燈，image 本機跑得起來，README 有 Render 設定表與 rollback 步驟
 
-Phase 5：上 Fly.io
-  fly.toml + health check + rollback 前置手續 → CI 重寫
-  → prod cutover + 驗證（★ checkpoint）
-  結束狀態：新版在 Fly.io serve 真實流量，一個 uptime 監控每 30 分鐘打真實搜尋 URL
+Phase 5：上 Render
+  owner 建 Render 服務（§6.1 那張表）→ 首次部署 + curl 驗證（★ checkpoint）
+  → 監控 workflow → owner 把新網址給朋友
+  結束狀態：v2 在 Render serve 真實流量，監控每 30 分鐘打真實搜尋 URL；v1 仍在 Fly
+  一週後：owner 關掉 v1（§6.5）
 
 Phase 6：遷移 Cloud Run（另開 branch，不 block）
-  Terraform → owner 手動跑 gcp-setup → CI 換 gcloud run deploy
-  → 驗證數天 → fly apps destroy + 刪 fly.toml
+  Terraform (owner 執行 terraform apply) → CI 加 gcloud run deploy
+  → 驗證數天 → 刪 Render 服務
 
 Phase 7：k8s（另開 branch，隨時，純學習）
   kind + manifest 跑同一個 prod image
@@ -900,17 +907,17 @@ Phase 7：k8s（另開 branch，隨時，純學習）
 ### 9.0 ★ checkpoint 放在哪裡
 
 判準是「這一步之後要退回去很貴」，不是「這一步很難」。所以 checkpoint 要標在
-不可逆的點與最後一道防線上，v4 那四個全部落在中段，兩個最危險的時刻反而沒有標。
+不可逆的點與最後一道防線上。
 
-1. **刪舊 app 那個 task**：刪掉六個目錄、換掉整份 settings，是第一個不可逆點
+1. **全新 settings 那個 task**：fail-fast 守衛第一次生效，之後 build、test、CI 全部依賴它
 2. **後端 API endpoints**：第一次打到真實 MoC
 3. **前端 scaffold**：第一次看到瀏覽器畫面
 4. **UI 元件三段各一次**：每一段結束都能開瀏覽器看到那一段做出來的東西
 5. **App 組裝**：全流程手動 E2E
 6. **prod image 的本機 smoke test**：真實部署前的最後一道防線，
    plan 自己寫了「唯一一次真實部署前的最後防線」卻沒標
-7. **cutover 後的 curl 驗證**：port 與 health check 這兩個靜默殺手
-   終於被證明的那一刻
+7. **Render 首次部署後的 curl 驗證**：PORT、`ALLOWED_HOSTS`、health check
+   三件事第一次在真實平台上被證明的那一刻
 
 ### 9.1 每個 task 收尾都要能在 local 測一次
 
@@ -918,35 +925,32 @@ owner 的開發時間是零碎的，每個 task 結束時必須有一個當下�
 純 `tsc --noEmit` 或純單元測試綠燈不算「看得到結果」，涉及畫面的 task
 要有實際開瀏覽器的步驟。
 
-**不可中斷的 task 組**（中途停下來 repo 會處於起不來的狀態，plan 要標明）：
-
-1. 目錄重構那一個 task：`git mv` 之後、settings/wsgi/pytest.ini 改完之前，
-   所有 Python 進入點都指向不存在的 module
-2. 刪除舊 app 那一個 task：清 import 與刪目錄之間停下來會 `ModuleNotFoundError`
-3. fly.toml 變更到部署驗證：`internal_port` 改了但還沒部署新 image 的期間，
-   config 與線上 image 不一致，此時任何人手動 deploy 或 rollback 都會拿到不通的組合
+**沒有不可中斷的 task。** 新 repo 不搬舊 code，也不就地改現役服務，
+任何一個 task 做到一半停下來，repo 都還是上一個 task 結束時的可用狀態。
 
 ## 10. 風險與已知取捨
 
 - **build 期 SECRET_KEY**：見 §6.1。最早的斷點，會擋掉 build、test、CI 三條路。
-- **Fly 不注入 `$PORT`**：見 §6.1。且因 scale-to-zero 會靜默失敗。
-- **fly.toml 缺 health check**：見 §6.1。缺了的話 port 對不齊時 deploy 仍回報成功。
-- **`ALLOWED_HOSTS` 平台網域不符**：見 §6.1。上線當下全站 400。
-- **rollback 不還原 config，且刪 volume 會讓 rollback 永久失效**：見 §6.5。
-- **prod cutover 沒有回頭路**：見 §6.5。整份 plan 唯一會讓現有網站中斷的一步。
-- **清理前移的代價**：首次真實部署時，工作樹已無舊結構可供 diff。
-  緩解：Phase 4 結束前的本機 prod-like smoke test（§8）把變數拆開。
-- **scale-to-zero + 監控指錯對象 = 靜默壞掉**：`/health` 不碰外部依賴，
+- **Dockerfile 出現 `ARG SECRET_KEY`**：見 §6.1。Render 會把環境變數轉成 build arg，
+  真 key 會進 image layer。
+- **`ALLOWED_HOSTS` 沒含 `onrender.com` 網域**：見 §6.1。health check 拿 400，每次 deploy 都被取消。
+- **rollback 會關掉 Auto-Deploy**：見 §6.5。忘了開回去的症狀是「push 了但站沒更新」。
+- **free tier 規則會變**：Fly 在 2024-10 取消新用戶免費方案，Koyeb 在 2026-02 改成要綁卡。
+  Render free 也可能改。緩解：Dockerfile 不綁平台（§2），Phase 6 是現成的出口。
+- **750 小時用完會被停到月底**：見 §6.5。只有這一個 free 服務、監控維持 30 分鐘，算起來約 372 小時。
+- **監控 workflow 會被 GitHub 自動停用**：public repo 60 天無活動。見 §6.5。
+- **網址換了要通知朋友**：v1 是 `.fly.dev`、v2 是 `.onrender.com`、Phase 6 又會換一次。
+  沒有自訂網域就沒有技術解，只能靠通知。
+- **spin down + 監控指錯對象 = 靜默壞掉**：`/health` 不碰外部依賴，
   MoC 掛掉時它照樣 200。緩解：監控打真實搜尋 URL（§3.4、§6.5）。
-  v4 的緩解手段是 `/health/upstream`，但那個 endpoint 讀的旗標在
-  scale-to-zero 下必然消失、而且只有真人搜尋才會被寫，
-  所以它是「看起來有監控」而不是有監控，比沒有更危險。
-- **省錢方案的代價是冷啟動**（owner 於 2026-08-23 選定）：
-  `min_machines_running = 0` 加上每 30 分鐘一次的監控，機器大部分時間是停的。
-  使用者第一次搜尋最壞等 20 秒且 cache 全空。緩解是 §4 的 8 秒文案，
+  讀 cache 旗標的 `/health/upstream` 也不行：旗標在 spin down 時必然消失、
+  而且只有真人搜尋才會被寫，它是「看起來有監控」而不是有監控，比沒有更危險。
+- **免費方案的代價是冷啟動**：服務睡著時打開網址最壞等大約 1 分鐘（Render 的 loading 頁），
+  進站後第一次搜尋 cache 全空，最壞再等 15 秒。緩解是 §4 的 8 秒文案，
   不是技術解，是把等待講清楚。
-- **誤 merge master 會卡死 CI**：見 §6.4。
-- **Fly 費用未確認**：見 §6.6 的 Phase 0 blocking 前置。
+- **Render free 的 0.1 vCPU**：gunicorn 開 8 個 thread 不會讓 CPU 變多，
+  只是讓等上游的 request 不互相卡住。(推論：本專案的 CPU 工作只有 JSON 解析與過濾，
+  0.1 vCPU 夠用；Phase 5 驗收時看一次 cache hit 的回應時間確認)
 - **`verify=False` 是永久且靜音的**：`urllib3.disable_warnings` 是 process 全域。
   MoC 哪天把憑證修好、或換一個 host，沒有任何東西會通知 owner 可以拿掉它。
   README 的維運段要列出這一行並註明「這是暫時解，狀態未被監控」。
@@ -954,9 +958,8 @@ owner 的開發時間是零碎的，每個 task 結束時必須有一個當下�
   其餘九個未驗證。(推論：若某個 category 的 `showInfo` 結構不同，
   會走到「raw 非空但 parsed 為 0」那條 sanity 路徑，回 502 而不是靜默空白)
   緩解：後端 checkpoint 順手把 12 個都打一次，記下筆數。
-- **網域硬編在兩個地方**：health check 的 Host header 與 `ALLOWED_HOSTS`
-  都寫死 `taiwan-culture-event-info.fly.dev`。換自訂網域或搬 Cloud Run 兩邊都要改，
-  漏一邊的症狀是「部署成功但全站 400」。
+- **網域只寫在一個地方**：Render 的 `ALLOWED_HOSTS` 環境變數。health check 的 Host header
+  由 Render 自己帶，不用另外設定。換自訂網域或搬 Cloud Run 時只改這一個值。
 - LocMemCache 不跨 instance、不跨 gunicorn worker、不耐重啟：已知，見 §3.3。
 - MoC API 無 SLA、憑證有問題：provider 層隔離，錯誤有明確 UX。
 - **MoC 回應格式可能靜默改版**（政府 open data 常見）：改欄位名時 HTTP 仍 200、
@@ -967,7 +970,8 @@ owner 的開發時間是零碎的，每個 task 結束時必須有一個當下�
   （CSS variables 一處改）。design.css 要預留註解好的低配值，臨時要降級不用重想。
   部署驗證要包含一次真實手機的捲動與 hover 順暢度確認。
 - **單 category 的資料量未量測**：整個設計建立在「一次抓完某 category 的全部活動
-  塞進 LocMemCache」，但沒有實測過單次回應的筆數與大小，1GB VM 要裝 12 個 category。
+  塞進 LocMemCache」，但沒有實測過單次回應的筆數與大小，Render free 只有 512 MB RAM
+  要裝 12 個 category 加上 Django 本身。
   (推論：撐爆的話會是 OOM kill + 間歇性 502 且無告警)
   緩解：後端 checkpoint 打真實 MoC 時順手量 `wc -c` 與筆數寫回本節；
   若單 category 超過幾 MB，LocMemCache 加 `OPTIONS: {"MAX_ENTRIES": 20}` 一行就夠。
@@ -981,43 +985,30 @@ owner 的開發時間是零碎的，每個 task 結束時必須有一個當下�
 
 ## 11. 環境變數
 
-README 要有這張表。半年後要重建環境或輪替 token 時，這是唯一該看的地方。
+README 要有這張表。半年後要重建環境或輪替 key 時，這是唯一該看的地方。
 
 | 變數 | 設在哪 | 誰用它 | 沒設會怎樣 |
 |---|---|---|---|
-| `SECRET_KEY` | Fly：`fly secrets set`；build：collectstatic 那行的假值；test：makefile 與 CI | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
-| `ALLOWED_HOSTS` | Fly：`fly.toml` 的 `[env]` | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
+| `SECRET_KEY` | prod：Render dashboard → Environment；build：collectstatic 那行的假值；test：makefile 與 CI | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
+| `ALLOWED_HOSTS` | prod：Render dashboard → Environment，值為 Render 實際分配之完整網域（如 `<真實服務名>.onrender.com`，防隨機後綴不一致）；build 與 test 同上 | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
 | `DEBUG` | dev：`docker-compose.dev.yml` | Django | 預設走 prod 分支 |
-| `PORT` | Dockerfile 的 `ENV PORT=8080`；Cloud Run 自動注入 | gunicorn | Fly 不注入，靠 Dockerfile 的預設值 |
-| `FLY_API_TOKEN` | GitHub repo secret | CI 的 deploy job | deploy job 失敗 |
+| `PORT` | Render 自動注入 10000；Cloud Run 自動注入 8080；本機靠 Dockerfile 的 `ENV PORT=8080` | gunicorn | 不會沒設 |
 | `UV_PROJECT_ENVIRONMENT` | `backend/Dockerfile.dev` | uv | venv 落在 bind mount 內被 host 覆蓋 |
 | `UID` / `GID` | dev：host shell（compose 讀，有預設值 1000） | dev container 的 non-root user | Linux host 上 container 寫不了 bind mount |
 
-`DJANGO_ENV` 不存在。v4 的內文提過它但 settings 沒實作，不要照著找。
+`DJANGO_ENV` 不存在，不要照著找。
 
-## 12. v4 → v5 改了什麼
+## 12. Owner 定案之設計與架構決策 (2026-10-02)
 
-v5 是 v4 加上一輪六視角 review 的修正，架構、視覺方向、技術選型全部不變。
-改動集中在七個必修項與四個 owner 決策：
+於 2026-10-02 Review-Crew 審查後，由 owner 明確拍板定案的關鍵決策：
 
-**必修（不改會壞）**
-
-1. `pytest.ini` 加 `python_files`，否則每一次全測都靜默漏掉 health 那組（§8）
-2. 刪舊 app 那個 task 的檔案清單順序，否則會在標了「不可中斷」的 task 裡 abort（見 plan）
-3. Phase 編號全文統一，否則會照 §6.4 的舊敘述太早 merge master（本文件開頭 + §6.4 + §9）
-4. `isascii()` 與月份 regex，否則驗證通過的參數會在轉型時噴 500（§3.1）
-5. 上游回應先確認是 list，否則格式漂移會變成 500 而不是 502（§3.2）
-6. 卡片顯示時間區間，否則展覽類別的 88% 看起來像舊資料（§4）
-7. dev container 的 `uv run --frozen --no-sync`，否則會改寫 host 的 `uv.lock`（§5.1）
-
-**owner 決策（2026-08-23）**
-
-1. 開 v5，不覆蓋 v4
-2. 前端 scaffold 從 Phase 3 提前到 Phase 1（§9）
-3. UI 元件那個 task 拆成三段，每段都能開瀏覽器驗（§9）
-4. Fly 走省錢方案：一個 monitor 每 30 分鐘，接受冷啟動（§6.5）
-
-**仍未處理、待 owner 決定的 overdesign 項目**（review 提出，v5 沒動）：
-裝飾用 SVG 約 150 行、i18n 的雙語 label schema 約 60 行、
-`COMING_SOON` 日韓 chip 與四個類別快捷 chip 約 70 行。
-這三項都是刪了會改變視覺或功能的東西，不在「修正」範圍內。
+1. **Provider ABC 抽象骨架：明確保留**
+   - 裁決：非過度設計，明確為未來擴充其他國家或資料來源所保留。維持輕量 interface (`base.py`)，不搞複雜 registry。
+2. **前端 20 項可測性與 a11y 規範：全部實作，不予拆分**
+   - 裁決：維持 MVP 完整品質標準，不拆 P0/P1，全數於 Phase 3 一次落實。
+3. **v1 舊站獨立性：兩者獨立，不侵入修改 v1**
+   - 裁決：v1 是 v1、v2 是 v2。v1 保持現狀不加跳轉 banner，一週後依下線清單直接停機銷毀。
+4. **視覺與體驗資產保留**：
+   - 裝飾用幾何線條 SVG（約 150 行）：保留。
+   - i18n 雙語 label schema（約 60 行）：保留。
+   - `COMING_SOON` 日韓 chip 與四個類別快捷 chip（約 70 行）：保留。

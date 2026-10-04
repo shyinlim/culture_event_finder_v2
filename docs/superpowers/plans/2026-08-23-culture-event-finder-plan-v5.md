@@ -1,5 +1,7 @@
 # Culture Event Finder Refactor：Implementation Plan v5
 
+> ⛔ **SUPERSEDED**：spec 已改為 `2026-10-02-culture-event-finder-design-v6.md`（新 repo + Render）。本 plan 的 T1、T2、T13 到 T16 在本 repo 會失敗，不要執行。plan v6 待寫。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Spec:** `docs/superpowers/specs/2026-08-23-culture-event-finder-design-v5.md`
