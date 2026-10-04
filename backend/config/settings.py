@@ -5,10 +5,10 @@ from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# 1. DEBUG 判定
+# 1. DEBUG mode flag
 DEBUG = os.environ.get("DEBUG", "False").lower() in ("true", "1", "yes")
 
-# 2. SECRET_KEY fail-fast
+# 2. SECRET_KEY fail-fast guard
 if DEBUG:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-insecure-secret-key-change-in-prod")
 else:
@@ -16,7 +16,7 @@ else:
         raise ImproperlyConfigured("SECRET_KEY environment variable is required in production.")
     SECRET_KEY = os.environ["SECRET_KEY"]
 
-# 3. ALLOWED_HOSTS fail-fast
+# 3. ALLOWED_HOSTS fail-fast guard
 if DEBUG:
     allowed_hosts_env = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,backend")
     ALLOWED_HOSTS = [h.strip() for h in allowed_hosts_env.split(",") if h.strip()]
@@ -76,7 +76,7 @@ STATICFILES_DIRS = [
     BASE_DIR.parent / "frontend" / "dist",
 ]
 
-# 自訂 WhiteNoise immutable 測試，匹配 Vite 的 base64url content-hash 產物 (例如 index-DcJk2sLm.js)
+# Custom WhiteNoise immutable test to match Vite content-hashed assets (e.g. index-DcJk2sLm.js)
 VITE_HASHED_FILE_REGEX = re.compile(r"-[A-Za-z0-9_-]{8,}\.(js|css|png|jpg|jpeg|gif|svg|woff2?)$")
 
 def is_immutable_file(path, url):

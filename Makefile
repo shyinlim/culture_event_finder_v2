@@ -1,14 +1,14 @@
 .PHONY: dev dev-reset test test-backend test-frontend build-prod run-prod
 
-# 所有 compose 指令都走這個變數，因為 compose 檔不在 root。
-# HOST_UID/HOST_GID 讓 backend container 用 host 的使用者身分寫 bind mount。
-# 不可以叫 UID/GID：它們沒有 export 給子程序，而且 macOS 的 /bin/sh 把 UID 設成唯讀。
+# All compose commands use this variable because docker-compose.yml is not in root.
+# HOST_UID/HOST_GID map host permissions for bind mounts.
+# Do not name them UID/GID: macOS /bin/sh marks UID read-only and unexported.
 COMPOSE = HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f deployment/dev/docker-compose.yml
 
 dev:
 	$(COMPOSE) up --build
 
-# 裝了新套件後跑這個：named volume 只在第一次建立時複製 image 內容，之後不會自己更新
+# Run after adding dependencies to rebuild and reset named volumes.
 dev-reset:
 	$(COMPOSE) down -v
 	$(COMPOSE) up --build
@@ -21,7 +21,7 @@ test-frontend:
 
 test: test-backend test-frontend
 
-# deployment/prod/Dockerfile 在 Task 12 才建立，在那之前這兩個 target 會失敗，屬預期
+# Production Dockerfile is created in Task 12; failure before Task 12 is expected.
 build-prod:
 	docker build -f deployment/prod/Dockerfile -t culture-event-finder-prod .
 
