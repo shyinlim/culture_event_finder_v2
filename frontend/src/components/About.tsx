@@ -27,12 +27,20 @@ export function About() {
           </div>
         ))}
       </div>
-      <p className="text-sm font-semibold text-[var(--text-muted)] pt-4 border-t border-[var(--panel-border-dim)]">
-        {t('about_author')}：
-        <a href="https://github.com/shyinlim/culture_event_finder_v2" target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: 'var(--link)' }}>
-          GitHub
+      <div className="pt-4 border-t border-[var(--panel-border-dim)] flex items-center">
+        <a
+          href="https://github.com/shyinlim/culture_event_finder_v2"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center hover:opacity-80 transition-opacity"
+        >
+          <img
+            src="https://img.shields.io/github/stars/shyinlim/culture_event_finder_v2?style=social"
+            alt="GitHub Stars"
+            height="20"
+          />
         </a>
-      </p>
+      </div>
     </section>
   );
 }

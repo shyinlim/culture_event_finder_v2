@@ -10,7 +10,7 @@ from toolkitsy.logger import logger
 from events.providers.base import BaseProvider, Event, UpstreamError
 
 MONTH_PATTERN = re.compile(r"(19|20)\d{2}-(0[1-9]|1[0-2])")
-FAILURE_TTL_SECONDS = 300  # Cache upstream failure for %S seconds to avoid repeated calls.
+FAILURE_TTL_SECONDS = 3600  # Cache upstream failure for %S seconds to avoid repeated calls.
 UPSTREAM_FAILED = "upstream_failed"
 
 

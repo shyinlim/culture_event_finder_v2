@@ -154,11 +154,11 @@ git commit -m "feat(events): group events by title and location with multi-showt
 - WhiteNoise 靜態託管 + Gunicorn 單一程序多執行緒
 - `CMD exec gunicorn ...`（shell 形式展開 `${PORT}`）
 
-- [ ] **Step 1: 在 `backend/config/urls.py` 加 SPA catch-all**
-- [ ] **Step 2: 建立 `deployment/prod/Dockerfile.dockerignore`**
-- [ ] **Step 3: 建立 `deployment/prod/Dockerfile`**
-- [ ] **Step 4: 本機 build production image 並執行 smoke test ★ checkpoint**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: 在 `backend/config/urls.py` 加 SPA catch-all**
+- [x] **Step 2: 建立 `deployment/prod/Dockerfile.dockerignore`**
+- [x] **Step 3: 建立 `deployment/prod/Dockerfile`**
+- [x] **Step 4: 本機 build production image 並執行 smoke test ★ checkpoint**
+- [x] **Step 5: Commit**
 
 ```bash
 git add deployment/prod/ backend/config/urls.py

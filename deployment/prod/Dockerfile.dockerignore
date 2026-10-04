@@ -1,0 +1,26 @@
+# Version control
+.git
+.gitignore
+
+# Python
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+htmlcov
+
+# Node & Frontend
+frontend/node_modules
+frontend/dist
+.npm
+
+# Static & Build artifacts
+staticfiles
+
+# Documentation & Scratch
+docs
+.claude
+.gemini
