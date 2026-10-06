@@ -1,5 +1,7 @@
 # Culture Event Finder Refactor：Implementation Plan v8
 
+> ⛔ **SUPERSEDED**：由 `2026-10-06-culture-event-finder-plan-v9.md` 取代（CI 重寫為 Task 15、新增 `SECRET_KEY` 選填為 Task 16，Render 與監控順延為 Task 17、18）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Spec:** `docs/superpowers/specs/2026-10-04-culture-event-finder-design-v8.md`

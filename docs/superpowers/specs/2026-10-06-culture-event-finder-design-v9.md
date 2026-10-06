@@ -1,15 +1,13 @@
-# Culture Event Finder：React + Django API 重構設計 v8
+# Culture Event Finder：React + Django API 重構設計 v9
 
-> ⛔ **SUPERSEDED**：已由 `2026-10-06-culture-event-finder-design-v9.md` 取代（CLI 全收進 Makefile、CI 每個 branch 都跑、`SECRET_KEY` 改選填）。
-
-- 日期：2026-10-04
-- 狀態：owner 於 2026-10-04 定案：活動卡片依 (title, location) 進行多場次聚合，卡片展示檔期與場次數，避免同節目連續重複排版。
-- 取代：`2026-10-04-culture-event-finder-design-v7.md`（v7 標記 SUPERSEDED）
+- 日期：2026-10-06
+- 狀態：owner 於 2026-10-06 定案：所有 CLI 指令收進 Makefile；CI 在每個 branch 的 push 都跑；`SECRET_KEY` 改為選填（未設時開機隨機產生）。
+- 取代：`2026-10-04-culture-event-finder-design-v8.md`（v8 標記 SUPERSEDED）
 - 前身：`taiwan_culture_event_info_django_jinja2`（Django + Jinja2 server-rendered，
   另一個 repo，現役跑在 Fly.io app `taiwan-culture-event-info`）
 - 本 repo：`culture_event_finder_v2`（全新 repo，從零開始，不搬 v1 的 git歷史）
 
-> 本文件自足。執行時不需開啟 v1 到 v7。需要 v1 的程式碼時，只看 §7 列出的檔案。
+> 本文件自足。執行時不需開啟 v1 到 v8。需要 v1 的程式碼時，只看 §7 列出的檔案。
 
 **Phase 編號全文統一為 0 到 7，見 §9。**
 
@@ -43,7 +41,7 @@
   不吃 k8s manifest。k8s 對本專案（單 container、單 instance）無運行價值，
   列為 Phase 7 學習用 side quest。
 - **`render.yaml`（Blueprint）不做**：Render 的設定只有 region、plan、health check path、
-  兩個環境變數、auto-deploy 模式這六項，在 dashboard 點一次，抄進 README（§6.1）。
+  一個環境變數 (`ALLOWED_HOSTS`)、auto-deploy 模式這五項，在 dashboard 點一次，抄進 README（§6.1）。
   Phase 6 搬走時這份設定就作廢，為它多維護一個檔不划算。
 
 ## 2. Repo 結構 (monorepo)
@@ -85,7 +83,7 @@ culture_event_finder_v2/
 │   │   └── Dockerfile.dockerignore
 │   └── terraform/               # Phase 6 才建（§6.6）
 ├── docs/poc/                    # POC HTML 迭代紀錄（design reference，唯讀）
-├── Makefile                     # 指令入口，留 root（不是部署設定）
+├── Makefile                     # 唯一的指令入口，留 root（不是部署設定，見下方 CLI 規則）
 └── pyproject.toml / uv.lock     # Python 依賴，留 root
 ```
 
@@ -93,6 +91,13 @@ culture_event_finder_v2/
 監控設定等）一律放這裡，root 只留 makefile 與語言工具鏈必須在 root 的檔案
 （`pyproject.toml`、`uv.lock`、`.python-version`）。
 `.github/workflows/` 是 GitHub 規定的位置，不搬。
+
+**所有 CLI 指令都寫在 Makefile，其他地方只呼叫 `make <target>`。**
+workflow 檔（`ci.yml`、`monitor.yml`）的 `run:` 只能是 `make <target>`，
+其餘步驟只能是 `uses:` 的 GitHub action；README 也只寫 make 指令。
+理由：同一串 shell 指令寫兩份，改了一份忘了另一份，就會出現「本機過、CI 壞」
+或反過來的情況，而且兩邊看起來都沒錯。規則的範圍是專案的 build、test、run、
+smoke、monitor 指令；開發者自己打的 `git`、`gh` 不在範圍內。
 
 **build context 一律是 repo root，Dockerfile 只是放在子目錄。** image 需要同時拿到
 `backend/`、`frontend/`、`pyproject.toml` 與 `uv.lock`，所以所有 build 都寫成
@@ -491,11 +496,21 @@ host 另跑一次 `npm ci`，提供 `make install-host`。
 
 ### 5.3 named volume 會 stale，要有 reset 出口
 
-提供 `make dev-reset`（`down -v` 後重建）。
+`make run-dev` 每次都先 `down -v` 再重建，reset 內建在啟動裡，不另設 target。
 
 ### 5.4 dev 常用指令
 
-由 makefile 提供：`make dev`、`make dev-reset`、`make install-host`、`make test-backend`、`make test-frontend`、`make test`、`make run-prod`。
+由 Makefile 提供（完整清單，新增指令一律加在這裡）：
+
+| target | 做什麼 | 誰會用 |
+|---|---|---|
+| `make run-dev` / `make stop-dev` | 起 / 停 dev compose（含 reset） | 本機 |
+| `make install-host` | `frontend/` 跑 `npm ci` | 本機 IDE、CI |
+| `make test-backend` / `make test-frontend` / `make test` | pytest、vitest | 本機、CI |
+| `make build-prod` / `make run-prod` / `make stop-prod` | build 並在 8791 起 prod image | 本機、CI |
+| `make smoke-prod` | 等 `/health` 起來後驗 4 個 endpoint | 本機、CI |
+| `make logs-prod` | 印 prod container log | 本機、CI 失敗時 |
+| `make monitor-prod` | 對 `PROD_URL` 打真實搜尋並驗 `events` 非空 | 本機、monitor |
 
 ## 6. 部署
 
@@ -508,17 +523,16 @@ host 另跑一次 `npm ci`，提供 `make install-host`。
 | Region | Singapore | 離台灣最近 |
 | Health Check Path | `/health` | 新版沒通過 check 就不切流量 |
 | Auto-Deploy | After CI Checks Pass，branch `master` | CI 紅燈不部署；亦可設為手動以省 build 配額 |
-| 環境變數 | `SECRET_KEY`、`ALLOWED_HOSTS` | §11，`ALLOWED_HOSTS` 填 dashboard 實際分配之網址 |
+| 環境變數 | `ALLOWED_HOSTS` | §11，填 dashboard 實際分配之網址；`SECRET_KEY` 不設（§11） |
 
 Free instance 限制：15 分鐘 spin down、每月 750 free instance hours、每月 500 分鐘 build 時間、每月 5 GB 出站流量、ephemeral filesystem、單 instance、無 shell。
 
 Multi-stage Dockerfile (`deployment/prod/Dockerfile`)：
 stage 1 (`node:22-slim`) `vite build` → stage 2 (`python:3.13-slim`) Django + gunicorn + WhiteNoise。
 
-collectstatic 帶 build-only 假值：
+collectstatic 帶 build-only 假值（只剩 `ALLOWED_HOSTS`，它仍是 prod 必填）：
 ```dockerfile
-RUN SECRET_KEY=build-only-not-used ALLOWED_HOSTS=build-only \
-    python backend/manage.py collectstatic --noinput
+RUN ALLOWED_HOSTS=build-only python backend/manage.py collectstatic --noinput
 ```
 
 CMD shell 形式：
@@ -531,17 +545,28 @@ CMD exec gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:${PORT:
 GitHub Actions 三個 job：`test-backend`、`test-frontend`、`build-smoke`。
 沒有 deploy job，交給 Render Auto-Deploy。
 
+- **觸發：`on: push`，不限 branch。** 每個 branch 的每次 push 都跑，master 也包含在內，
+  所以 Render 的「After CI Checks Pass」照常生效。不加 `pull_request` 觸發：
+  PR 都從本 repo 的 branch 開，push 那次已經跑過，加了會同一個 commit 跑兩次。
+- **每個 `run:` 都是 `make <target>`**（§2 CLI 規則）：
+  `test-backend` 跑 `make test-backend`；`test-frontend` 跑 `make install-host` 與 `make test-frontend`；
+  `build-smoke` 跑 `make run-prod`、`make smoke-prod`，失敗時 `make logs-prod`。
+- 不另寫 cleanup 步驟：runner 跑完整台丟掉，container 跟著消失。
+- Python 版本不在 workflow 裡裝：`uv run` 依 `.python-version` 自行取得 3.13。
+
 ### 6.3 依賴管理單一來源：uv
 
 `pyproject.toml` + `uv.lock`。無 `[build-system]`。
 
 ### 6.4 branch 策略
 
-Phase 5 前直接在 master 開發。
+新工作開 branch 開發，CI 綠燈後合回 master。master 的 push 觸發 Render 部署。
 
 ### 6.5 上線、rollback、關掉 v1
 
-v2 上線一週後依清單關閉 v1。監控每 30 分鐘打真實搜尋 URL，以 `jq -e '.events | length > 0'` 嚴格驗證。
+v2 上線一週後依清單關閉 v1。監控每 30 分鐘跑 `make monitor-prod`，打真實搜尋 URL，以 `jq -e '.events | length > 0'` 嚴格驗證。
+`PROD_URL` 預設 `http://localhost:8791`（對本機 `make run-prod`），monitor workflow 從 GitHub repo variable `PROD_URL` 帶入 Render 網址。
+`curl --max-time 90`：Render free 冷啟動約一分鐘，60 秒以內的 timeout 會把喚醒誤報成故障。
 
 ### 6.6 Phase 6：遷移 Cloud Run（另開 branch）
 
@@ -563,7 +588,7 @@ Terraform 管理 infra，CI build image 後部署。
 ## 9. 里程碑
 
 ```
-Phase 0：規劃 ✅（2026-10-04 改版 v8 定稿）
+Phase 0：規劃 ✅（2026-10-06 改版 v9 定稿）
 Phase 1：骨架先立好 ✅（T1~T4 完成）
 Phase 2：後端 ✅（T5~T7 完成）
 Phase 3：前端 ✅（T8~T11 完成）
@@ -582,12 +607,23 @@ Phase 7：k8s（另開 branch，學習用）
 
 | 變數 | 設在哪 | 誰用它 | 沒設會怎樣 |
 |---|---|---|---|
-| `SECRET_KEY` | prod：Render dashboard；build：collectstatic 假值；test：makefile 與 CI | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
-| `ALLOWED_HOSTS` | prod：Render dashboard；build 與 test 同上 | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
+| `SECRET_KEY` | 選填，目前任何環境都不設 | Django 簽章（目前沒有功能讀它） | 每次開機用 `get_random_secret_key()` 隨機產生 |
+| `ALLOWED_HOSTS` | prod：Render dashboard；build：collectstatic 假值；本機與 CI：Makefile `run-prod` | Django | 非 dev 時啟動即 `ImproperlyConfigured` |
+| `PROD_URL` | Makefile 預設 `http://localhost:8791`；monitor：GitHub repo variable | `make monitor-prod` | 打本機 |
 | `DEBUG` | dev：`deployment/dev/docker-compose.yml` | Django | 預設走 prod 分支 |
 | `PORT` | 平台注入或預設 8791；dev backend 8789 / frontend 8790 | gunicorn / Vite | 不會沒設 |
 | `UV_PROJECT_ENVIRONMENT` | `deployment/dev/backend.Dockerfile` | uv | venv 落在 bind mount 內被 host 覆蓋 |
 | `HOST_UID` / `HOST_GID` | dev：Makefile 帶入 | container non-root user | Linux host 權限問題 |
+
+**`SECRET_KEY` 為什麼是選填。** Django 拿它簽 session、messages 與 `django.core.signing`。
+本專案 `INSTALLED_APPS` 只有 `staticfiles` 與 `health`，沒有 sessions、auth、messages，
+沒有任何程式讀它；Django 3.2 起 `SECRET_KEY` 是第一次被讀時才檢查。2026-10-06 實測：
+prod 模式、`SECRET_KEY` 為空，`/health`、`/`、`/api/v1/countries` 全回 200。
+寫法是 `SECRET_KEY = os.environ.get("SECRET_KEY") or get_random_secret_key()`：
+不設時每次開機一把沒人知道的 key，安全性不降；不用空字串，因為空字串會讓日後
+第一個讀它的功能在 request 中途 500。**日後加了 sessions 或 auth**，隨機 key 會讓每次
+重開機（Render free 閒置 15 分鐘就 spin down）都登出所有人，那時在 Render 設一把固定的 key，code 不用改。
+不用 Vault：單一 service、零個真正的 secret，Render 的 env var 就是 secret store。
 
 ## 12. Owner 定案之設計與架構決策
 
@@ -595,3 +631,6 @@ Phase 7：k8s（另開 branch，學習用）
 2. **前端 20 項可測性與 a11y 規範全部實作**
 3. **v1 舊站獨立，不侵入修改**
 4. **活動卡片依 (title, location) 聚合，附多場次 Modal（v8 決策）**
+5. **所有 CLI 指令收進 Makefile，workflow 只呼叫 make（v9 決策，§2）**
+6. **CI 每個 branch push 都跑（v9 決策，§6.2、§6.4）**
+7. **`SECRET_KEY` 選填，未設時開機隨機產生，不用 Vault（v9 決策，§11）**
