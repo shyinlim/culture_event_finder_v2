@@ -189,7 +189,7 @@ git commit -m "docs: finalize comprehensive production README"
 **Files:**
 - Create: `.github/workflows/ci.yml`
 
-- [ ] **Step 1: 建立 GitHub Actions CI workflow**（含 `test-backend`, `test-frontend`, `build-smoke` 三個 jobs）
+- [x] **Step 1: 建立 GitHub Actions CI workflow**（含 `test-backend`, `test-frontend`, `build-smoke` 三個 jobs）
 - [ ] **Step 2: Commit**
 
 ```bash
