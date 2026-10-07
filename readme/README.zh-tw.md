@@ -1,10 +1,14 @@
-# Culture Event Finder v2
+# Culture Event Finder V2
 
 <p align="right">
   <a href="../README.md">English</a> | <b>繁體中文</b>
 </p>
+<br>
+<br>
 
-Culture Event Finder v2 是一個現代化的台灣藝文活動查詢平台。
+https://culture-event-finder.onrender.com/
+
+Culture Event Finder V2 是一個現代化的藝文活動查詢平台。
 後端使用 Django 5，前端使用 Vite 搭配 React。
 透過多階段 Dockerfile，將前後端打包成單一容器，方便快速部署。
 
@@ -152,5 +156,5 @@ make test-frontend
    - **Dockerfile Path**：`deployment/prod/Dockerfile`
    - **Health Check Path**：`/healthz`
 4. 設定環境變數：
-   - `ALLOWED_HOSTS`：填入 Render 分配的域名（例如 `culture-event-finder-v2.onrender.com`）。
+   - `ALLOWED_HOSTS`：填入 Render 分配的域名（例如 `culture-event-finder.onrender.com`）。
 5. 點擊 **Create Web Service** 開始建置與部署。

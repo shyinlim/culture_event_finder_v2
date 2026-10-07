@@ -1,0 +1,14 @@
+name: Monitor
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+
+# All shell commands live in the Makefile.
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make monitor-prod PROD_URL=${{ vars.PROD_URL }}

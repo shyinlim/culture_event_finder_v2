@@ -7,6 +7,9 @@
 # Do not name them UID/GID: macOS /bin/sh marks UID read-only and unexported.
 COMPOSE = HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f deployment/dev/docker-compose.yml
 
+# Local `make run-prod` by default; monitor.yml passes the Render URL.
+PROD_URL ?= http://localhost:8791
+
 # -----------------------------------------------------------------------------
 # Development
 # -----------------------------------------------------------------------------
@@ -49,7 +52,7 @@ test-frontend:
 # Production & Smoke Test
 # -----------------------------------------------------------------------------
 
-.PHONY: build-prod run-prod smoke-prod logs-prod stop-prod
+.PHONY: build-prod run-prod smoke-prod logs-prod stop-prod monitor-prod
 
 build-prod:
 	docker build -f deployment/prod/Dockerfile -t culture-event-finder-prod .
@@ -78,6 +81,12 @@ smoke-prod:
 
 logs-prod:
 	docker logs culture-event-prod
+
+# Real search through MoC. Month uses Taiwan time: GitHub runners are UTC.
+# --max-time 90: Render free cold start takes about a minute.
+monitor-prod:
+	curl -sf --max-time 90 "$(PROD_URL)/api/v2/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=$$(TZ=Asia/Taipei date +%Y-%m)" | jq -e '.events | length > 0' > /dev/null
+	@echo "Monitor passed: $(PROD_URL)"
 
 stop-prod:
 	docker stop culture-event-prod

@@ -295,7 +295,7 @@ Dashboard 操作，沒有 code 改動。
 - Consumes: Task 17 Step 3 的 repo variable `PROD_URL`
 - Produces: `make monitor-prod [PROD_URL=...]`，成功 exit 0；`events` 為空、HTTP 非 2xx、timeout 都 exit 非 0。
 
-- [ ] **Step 1: Makefile 加 `monitor-prod`**
+- [x] **Step 1: Makefile 加 `monitor-prod`**
 
 `.PHONY` 那行尾端加 `monitor-prod`。在 `COMPOSE = ...` 下方加：
 
@@ -316,7 +316,7 @@ monitor-prod:
 
 （`%E8%87%BA%E5%8C%97` 是 `臺北` 的 URL encode。）
 
-- [ ] **Step 2: 本機驗證正向、反向、線上與時區**
+- [x] **Step 2: 本機驗證正向、反向、線上與時區**
 
 Run: `make run-prod && make smoke-prod && make monitor-prod`（`run-prod` 不等 server 起來，先用 `smoke-prod` 等 `/healthz`）
 Expected: `Monitor passed: http://localhost:8791`
@@ -330,14 +330,14 @@ Expected: `Monitor passed: https://...onrender.com`
 Run: `TZ=UTC date -r 1790787600 +%Y-%m; TZ=Asia/Taipei date -r 1790787600 +%Y-%m`
 Expected: `2026-09` 然後 `2026-10`（1790787600 是 UTC 2026-09-30 17:00，台灣已是 10/1 01:00）。證明 `TZ=Asia/Taipei` 會把月初那 8 小時算對。
 
-- [ ] **Step 3: 建立 `.github/workflows/monitor.yml`**
+- [x] **Step 3: 建立 `.github/workflows/monitor.yml`**
 
 ```yaml
 name: Monitor
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "0 */12 * * *"
   workflow_dispatch:
 
 # All shell commands live in the Makefile.

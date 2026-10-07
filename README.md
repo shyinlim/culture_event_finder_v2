@@ -1,12 +1,17 @@
-# Culture Event Finder v2
+# Culture Event Finder V2
 
 <p align="right">
   <b>English</b> | <a href="readme/README.zh-tw.md">繁體中文</a>
 </p>
+<br>
+<br>
 
-Culture Event Finder v2 is a modern culture event search platform for Taiwan.
+https://culture-event-finder.onrender.com/
+
+Culture Event Finder V2 is a modern culture event search platform.
 It uses Django 5 on the backend and React with Vite on the frontend.
 A multi-stage Dockerfile packages both into one container for easy deployment.
+
 
 ![frontend.png](readme/frontend.png)
 
@@ -152,5 +157,5 @@ make test-frontend
    - **Dockerfile Path**: `deployment/prod/Dockerfile`
    - **Health Check Path**: `/healthz`
 4. Set the Environment Variable:
-   - `ALLOWED_HOSTS`: Set to your Render domain (e.g. `culture-event-finder-v2.onrender.com`).
+   - `ALLOWED_HOSTS`: Set to your Render domain (e.g. `culture-event-finder.onrender.com`).
 5. Click **Create Web Service** to start the build and deploy.
