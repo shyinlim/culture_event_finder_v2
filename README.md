@@ -126,7 +126,6 @@ make test-frontend
 
 | Variable | Environment | Description | Example / Default |
 |---|---|---|---|
-| `SECRET_KEY` | Production (Required) | Django secret key. Missing key triggers fail-fast on startup. | `local-prod-test-key` |
 | `ALLOWED_HOSTS` | Production (Required) | Comma-separated list of allowed hostnames. | `localhost,127.0.0.1,0.0.0.0` |
 | `DEBUG` | Development | Enables Django debug mode. Defaults to off in production. | `0` (Prod) / `1` (Dev) |
 | `PORT` | Production | Gunicorn listening port. | `8791` (Local) / Injected by host |
@@ -152,7 +151,6 @@ make test-frontend
    - **Environment**: Docker
    - **Dockerfile Path**: `deployment/prod/Dockerfile`
    - **Health Check Path**: `/health`
-4. Set the Environment Variables:
-   - `SECRET_KEY`: Set to a strong random string.
+4. Set the Environment Variable:
    - `ALLOWED_HOSTS`: Set to your Render domain (e.g. `culture-event-finder-v2.onrender.com`).
 5. Click **Create Web Service** to start the build and deploy.

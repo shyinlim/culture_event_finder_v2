@@ -32,8 +32,8 @@ export function EventCard({
   const banner = BANNERS[index % BANNERS.length];
 
   return (
-    <article className="card-hover group rounded-3xl overflow-hidden bg-[var(--surface-2)] border border-[var(--panel-border-dim)] transition-all duration-300">
-      <div className="h-32 relative flex items-end p-4 overflow-hidden" style={{ background: banner.background }}>
+    <article className="card-hover group flex flex-col h-full rounded-3xl overflow-hidden bg-[var(--surface-2)] border border-[var(--panel-border-dim)] transition-all duration-300">
+      <div className="h-32 shrink-0 relative flex items-end p-4 overflow-hidden" style={{ background: banner.background }}>
         <svg className="card-img-svg absolute inset-0 w-full h-full" viewBox="0 0 300 128" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="1.2" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           {banner.shapes}
         </svg>
@@ -44,8 +44,8 @@ export function EventCard({
           </span>
         )}
       </div>
-      <div className="p-6">
-        <h3 className="font-bold text-lg leading-snug mb-3 text-[var(--text)] group-hover:text-[var(--link)] transition-colors">
+      <div className="p-6 flex flex-col flex-1">
+        <h3 className="font-bold text-lg leading-snug mb-3 text-[var(--text)] group-hover:text-[var(--link)] transition-colors line-clamp-2 min-h-[3.25rem]">
           {event.title}
         </h3>
         <div className="flex items-center justify-between text-sm text-[var(--text-muted)] mb-3 min-h-[28px]">
@@ -70,10 +70,12 @@ export function EventCard({
           className="text-sm hover:underline flex items-start gap-2 mb-5"
           style={{ color: 'var(--link)' }}
         >
-          <Icon name="pin" size={16} />
-          <span className="leading-relaxed">{event.locationName ? `${event.locationName}・${event.location}` : event.location}</span>
+          <span className="shrink-0 mt-0.5">
+            <Icon name="pin" size={16} />
+          </span>
+          <span className="leading-relaxed line-clamp-2 min-h-[3rem]">{event.locationName ? `${event.locationName}・${event.location}` : event.location}</span>
         </a>
-        <div className="flex items-center justify-between border-t border-[var(--panel-border-dim)] pt-4 mt-2 gap-3">
+        <div className="flex items-center justify-between border-t border-[var(--panel-border-dim)] pt-4 mt-auto gap-3">
           <p className="text-sm font-bold text-[var(--text)]">{formatPrice(event.price, lang)}</p>
           <a
             href={buildGoogleSearchUrl(event.title)}

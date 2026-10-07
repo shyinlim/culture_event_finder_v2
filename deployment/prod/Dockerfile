@@ -29,8 +29,7 @@ RUN uv sync --frozen --no-dev
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 COPY backend /app/backend
 
-RUN SECRET_KEY=build-only-not-used ALLOWED_HOSTS=build-only \
-    python backend/manage.py collectstatic --noinput
+RUN ALLOWED_HOSTS=build-only python backend/manage.py collectstatic --noinput
 
 EXPOSE 8791
 

@@ -64,14 +64,14 @@ v8 的 Task 15（CI，commit `6d61ea8`）由本版 Task 15 重寫；Task 16 是�
 - Consumes: 現有 `run-prod`（此時仍帶 `-e SECRET_KEY=local-prod-test-key`，Task 16 才拿掉）
 - Produces: Make targets `smoke-prod`、`logs-prod`；`test-backend` 帶 `--frozen`。Task 16 用 `make run-prod && make smoke-prod` 驗證；Task 18 的 `monitor-prod` 加在同一份 Makefile。
 
-- [ ] **Step 0: 在 master commit v10 文件**
+- [x] **Step 0: 在 master commit v10 文件**
 
 ```bash
 git add docs/
 git commit -m "docs: add spec v10, plan v10, roadmap v10"
 ```
 
-- [ ] **Step 1: 改 Makefile**
+- [x] **Step 1: 改 Makefile**
 
 `.PHONY` 那行換成：
 
@@ -115,7 +115,7 @@ watch-ci:
 	gh run watch "$$id" --exit-status
 ```
 
-- [ ] **Step 2: 重寫 `.github/workflows/ci.yml`**
+- [x] **Step 2: 重寫 `.github/workflows/ci.yml`**
 
 ```yaml
 name: CI Pipeline
@@ -163,17 +163,17 @@ jobs:
 
 不寫 cleanup 步驟：runner 跑完整台丟掉。`npm test` 本身就是 `vitest run`，不會卡在 watch mode。
 
-- [ ] **Step 3: 本機跑一次正向 smoke**
+- [x] **Step 3: 本機跑一次正向 smoke**
 
 Run: `make run-prod && make smoke-prod`
 Expected: 最後一行 `Smoke tests passed.`
 
-- [ ] **Step 4: 本機跑一次反向 smoke（沒有 container 時一定要失敗）**
+- [x] **Step 4: 本機跑一次反向 smoke（沒有 container 時一定要失敗）**
 
 Run: `make stop-prod; make smoke-prod; echo "exit=$?"`
 Expected: 約 30 秒後 curl 失敗，最後一行 `exit=2`（非 0 即可）。
 
-- [ ] **Step 5: README 加 smoke 指令**
+- [x] **Step 5: README 加 smoke 指令**
 
 `README.md` 的「2. Production Container Simulation (Prod)」code block 換成：
 
@@ -189,7 +189,7 @@ make run-prod
 make smoke-prod   # 跟 CI 跑的檢查一樣
 ```
 
-- [ ] **Step 6: Commit、push master、驗證 CI**
+- [x] **Step 6: Commit、push master、驗證 CI**
 
 ```bash
 git add Makefile .github/workflows/ci.yml README.md readme/README.zh-tw.md

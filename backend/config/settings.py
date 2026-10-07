@@ -11,15 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # 1. DEBUG mode flag
 DEBUG = os.environ.get("DEBUG", "False").lower() in ("true", "1", "yes")
 
-# 2. SECRET_KEY fail-fast guard
-if DEBUG:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-insecure-secret-key-change-in-prod")
-else:
-    if not os.environ.get("SECRET_KEY"):
-        raise ImproperlyConfigured("SECRET_KEY environment variable is required in production.")
-    SECRET_KEY = os.environ["SECRET_KEY"]
-
-# 3. ALLOWED_HOSTS fail-fast guard
+# 2. ALLOWED_HOSTS fail-fast guard
 if DEBUG:
     allowed_hosts_env = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0,backend")
     ALLOWED_HOSTS = [h.strip() for h in allowed_hosts_env.split(",") if h.strip()]

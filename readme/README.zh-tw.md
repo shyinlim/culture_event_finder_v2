@@ -126,7 +126,6 @@ make test-frontend
 
 | 變數名稱 | 適用環境 | 說明 | 範例 / 預設值 |
 |---|---|---|---|
-| `SECRET_KEY` | 生產環境 (必填) | Django 密鑰。未設定會在啟動時直接拋錯中止。 | `local-prod-test-key` |
 | `ALLOWED_HOSTS` | 生產環境 (必填) | 允許連線的 Host 網域清單（以逗號分隔）。 | `localhost,127.0.0.1,0.0.0.0` |
 | `DEBUG` | 開發環境 | 是否開啟 Django 除錯模式。生產容器中預設關閉。 | `0` (Prod) / `1` (Dev) |
 | `PORT` | 生產環境 | Gunicorn 監聽埠號。 | `8791` (本地) / 由部署平台注入 |
@@ -153,6 +152,5 @@ make test-frontend
    - **Dockerfile Path**：`deployment/prod/Dockerfile`
    - **Health Check Path**：`/health`
 4. 設定環境變數：
-   - `SECRET_KEY`：填入隨機生成的高強度字串。
    - `ALLOWED_HOSTS`：填入 Render 分配的域名（例如 `culture-event-finder-v2.onrender.com`）。
 5. 點擊 **Create Web Service** 開始建置與部署。

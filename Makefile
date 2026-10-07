@@ -57,7 +57,7 @@ build-prod:
 
 run-prod: build-prod
 	docker rm -f culture-event-prod 2>/dev/null || true
-	docker run -d --rm --name culture-event-prod -p 8791:8791 -e SECRET_KEY=local-prod-test-key -e ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0 culture-event-finder-prod
+	docker run -d --rm --name culture-event-prod -p 8791:8791 -e ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0 culture-event-finder-prod
 	@echo ""
 	@echo "▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ ▻ Service (Prod) ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅ ◅"
 	@echo "  ▶ Service: http://localhost:8791 (running in background)"
