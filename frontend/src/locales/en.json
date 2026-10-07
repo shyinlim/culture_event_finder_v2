@@ -33,5 +33,6 @@
   "total_shows": "Total {{count}} shows",
   "show_count_badge": "{{count}} shows ▾",
   "modal_booking_hint": "Please select a showtime when booking",
-  "modal_close": "Close"
+  "modal_close": "Close",
+  "back_to_top": "Back to top"
 }
