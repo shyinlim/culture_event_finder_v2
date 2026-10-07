@@ -99,6 +99,7 @@ Build and run the production image on port 8791:
 
 ```bash
 make run-prod
+make smoke-prod   # same checks CI runs
 ```
 
 - Web Service: http://localhost:8791

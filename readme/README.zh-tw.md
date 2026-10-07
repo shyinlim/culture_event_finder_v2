@@ -99,6 +99,7 @@ make run-dev
 
 ```bash
 make run-prod
+make smoke-prod   # 跟 CI 跑的檢查一樣
 ```
 
 - 服務網址：http://localhost:8791
