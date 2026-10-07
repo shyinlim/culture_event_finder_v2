@@ -216,11 +216,11 @@ Expected: master 的 push 觸發了 CI，三個 job 全綠，`make watch-ci` exi
 
 沒有新測試：沒有邏輯可測。「不帶 key 也能開機、能回應」由 Step 3 的 `make test-backend` 與 Step 4 的 smoke 驗證。
 
-- [ ] **Step 1: 刪掉 settings 的 `SECRET_KEY`**
+- [x] **Step 1: 刪掉 settings 的 `SECRET_KEY`**
 
 `backend/config/settings.py` 第 14 ~ 20 行整段 `# 2. SECRET_KEY fail-fast guard` 刪掉（含結尾空行），下面的 `# 3. ALLOWED_HOSTS` 改編號成 `# 2. ALLOWED_HOSTS`。`from django.core.exceptions import ImproperlyConfigured` 留著，`ALLOWED_HOSTS` 守衛還在用。
 
-- [ ] **Step 2: 拿掉其他地方的 `SECRET_KEY`**
+- [x] **Step 2: 拿掉其他地方的 `SECRET_KEY`**
 
 `Makefile` 的 `run-prod` 第二行：
 
@@ -248,7 +248,7 @@ RUN ALLOWED_HOSTS=build-only python backend/manage.py collectstatic --noinput
    - `ALLOWED_HOSTS`：填入 Render 分配的域名（例如 `culture-event-finder-v2.onrender.com`）。
 ```
 
-- [ ] **Step 3: 確認沒有殘留、測試全過**
+- [x] **Step 3: 確認沒有殘留、測試全過**
 
 Run: `git grep -n "SECRET_KEY" -- ':!docs/'`
 Expected: 沒有任何輸出（exit 1）。
@@ -256,12 +256,12 @@ Expected: 沒有任何輸出（exit 1）。
 Run: `make test-backend`
 Expected: 全部 PASS。
 
-- [ ] **Step 4: prod image 不帶 SECRET_KEY 也能起來**
+- [x] **Step 4: prod image 不帶 SECRET_KEY 也能起來**
 
 Run: `make run-prod && make smoke-prod && make stop-prod`
 Expected: `Smoke tests passed.`
 
-- [ ] **Step 5: Commit、push master ★ checkpoint**
+- [x] **Step 5: Commit、push master ★ checkpoint**
 
 ```bash
 git add backend/config/settings.py Makefile deployment/prod/Dockerfile README.md readme/README.zh-tw.md
