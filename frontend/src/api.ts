@@ -50,7 +50,7 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 }
 
 export function fetchCountries(signal?: AbortSignal): Promise<Country[]> {
-  return getJson<Country[]>('/api/v1/countries', signal);
+  return getJson<Country[]>('/api/v2/countries', signal);
 }
 
 export function searchEvents(
@@ -62,5 +62,5 @@ export function searchEvents(
     location: form.location,
     month: toMonthParam(form.year, form.month),
   });
-  return getJson(`/api/v1/${form.country}/events?${params}`, signal);
+  return getJson(`/api/v2/${form.country}/events?${params}`, signal);
 }

@@ -66,13 +66,13 @@ run-prod: build-prod
 	@echo "make stop-prod"
 	@echo ""
 
-# Wait up to 30s for /health, then check 4 endpoints. Any failed curl fails make.
+# Wait up to 30s for /healthz, then check 4 endpoints. Any failed curl fails make.
 smoke-prod:
-	@for i in $$(seq 30); do curl -sf http://127.0.0.1:8791/health > /dev/null && break; sleep 1; done
-	curl -sf http://127.0.0.1:8791/health
-	curl -sf http://127.0.0.1:8791/health/
+	@for i in $$(seq 30); do curl -sf http://127.0.0.1:8791/healthz > /dev/null && break; sleep 1; done
+	curl -sf http://127.0.0.1:8791/healthz
+	curl -sf http://127.0.0.1:8791/healthz/
 	curl -sf http://127.0.0.1:8791/ | grep -q "root"
-	curl -sf http://127.0.0.1:8791/api/v1/countries | grep -q "Taiwan"
+	curl -sf http://127.0.0.1:8791/api/v2/countries | grep -q "Taiwan"
 	@echo ""
 	@echo "Smoke tests passed."
 

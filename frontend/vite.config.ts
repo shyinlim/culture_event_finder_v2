@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => ({
     // Keep Host header as localhost:8790 so Django matches ALLOWED_HOSTS.
     proxy: {
       '/api': { target: 'http://backend:8789' },
-      '/health': { target: 'http://backend:8789' },
+      '/healthz': { target: 'http://backend:8789' },
     },
   },
   test: {

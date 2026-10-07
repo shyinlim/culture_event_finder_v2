@@ -1,4 +1,4 @@
-// Mirrors backend /api/v1 contracts 1:1.
+// Mirrors backend /api/v2 contracts 1:1.
 
 export interface EventShow {
   startTime: string; // "2026/07/12 19:30:00"

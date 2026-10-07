@@ -11,7 +11,7 @@ class EventApiTests(SimpleTestCase):
         cache.clear()
 
     def test_countries_carries_dropdown_options(self):
-        res = self.client.get("/api/v1/countries")
+        res = self.client.get("/api/v2/countries")
         self.assertEqual(res.status_code, 200)
         tw = res.json()[0]
         self.assertEqual(tw["code"], "tw")
@@ -19,7 +19,7 @@ class EventApiTests(SimpleTestCase):
         self.assertEqual(tw["categories"][0], {"value": "6", "zh": "展覽", "en": "Exhibition"})
 
     def test_unknown_country_is_404_json(self):
-        res = self.client.get("/api/v1/jp/events?category=6&location=臺北&month=2026-07")
+        res = self.client.get("/api/v2/jp/events?category=6&location=臺北&month=2026-07")
         self.assertEqual(res.status_code, 404)
         self.assertEqual(res.json()["error"]["code"], "not_found")
 
@@ -30,14 +30,14 @@ class EventApiTests(SimpleTestCase):
             "category=6&location=臺北&month=0000-01",
         ):
             with self.subTest(query=query):
-                res = self.client.get(f"/api/v1/tw/events?{query}")
+                res = self.client.get(f"/api/v2/tw/events?{query}")
                 self.assertEqual(res.status_code, 400)
                 self.assertEqual(res.json()["error"]["code"], "bad_request")
 
     # Patch search_events in events.views where it is imported and bound.
     @patch("events.views.search_events", side_effect=UpstreamError("MoC down"))
     def test_upstream_error_is_502(self, _):
-        res = self.client.get("/api/v1/tw/events?category=6&location=臺北&month=2026-07")
+        res = self.client.get("/api/v2/tw/events?category=6&location=臺北&month=2026-07")
         self.assertEqual(res.status_code, 502)
         self.assertEqual(res.json()["error"]["code"], "upstream_error")
 
@@ -58,7 +58,7 @@ class EventApiTests(SimpleTestCase):
             ],
             "meta": {"rawCount": 5, "matchedCount": 1, "cacheAge": None},
         }
-        res = self.client.get("/api/v1/tw/events?category=6&location=臺北&month=2026-07")
+        res = self.client.get("/api/v2/tw/events?category=6&location=臺北&month=2026-07")
         self.assertEqual(res.status_code, 200)
         self.assertEqual(
             res.json()["events"][0],
@@ -76,6 +76,6 @@ class EventApiTests(SimpleTestCase):
         )
 
     def test_every_response_has_request_id(self):
-        res = self.client.get("/api/v1/countries", HTTP_X_REQUEST_ID="abc123")
+        res = self.client.get("/api/v2/countries", HTTP_X_REQUEST_ID="abc123")
         self.assertEqual(res["X-Request-ID"], "abc123")
-        self.assertTrue(self.client.get("/health")["X-Request-ID"])
+        self.assertTrue(self.client.get("/healthz")["X-Request-ID"])

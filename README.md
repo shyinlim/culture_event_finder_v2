@@ -32,7 +32,7 @@ A multi-stage Dockerfile packages both into one container for easy deployment.
 |             (Selects city & category, clicks Search)           |
 +-------------------------------+--------------------------------+
                                 │
-                                │ 1. GET /api/v1/events/?...
+                                │ 1. GET /api/v2/events/?...
                                 ▼
 +----------------------------------------------------------------+
 |                    Backend API (Django 5)                      |
@@ -136,9 +136,9 @@ make test-frontend
 
 | Method | Endpoint | Description | Query Parameters / Response |
 |---|---|---|---|
-| `GET` | `/health` | Service health check | Returns `{"status": "ok"}` with HTTP 200 |
-| `GET` | `/api/v1/countries` | List supported countries | Returns `[{"code": "TW", "name": "Taiwan", "supported": true}]` |
-| `GET` | `/api/v1/events/` | Search and group culture events | Params: `country` (`TW`), `location` (`臺北`), `category` (`1`), `month` (`YYYY-MM`) |
+| `GET` | `/healthz` | Service health check | Returns `{"status": "ok"}` with HTTP 200 |
+| `GET` | `/api/v2/countries` | List supported countries | Returns `[{"code": "TW", "name": "Taiwan", "supported": true}]` |
+| `GET` | `/api/v2/events/` | Search and group culture events | Params: `country` (`TW`), `location` (`臺北`), `category` (`1`), `month` (`YYYY-MM`) |
 
 ---
 
@@ -150,7 +150,7 @@ make test-frontend
    - **Region**: Singapore
    - **Environment**: Docker
    - **Dockerfile Path**: `deployment/prod/Dockerfile`
-   - **Health Check Path**: `/health`
+   - **Health Check Path**: `/healthz`
 4. Set the Environment Variable:
    - `ALLOWED_HOSTS`: Set to your Render domain (e.g. `culture-event-finder-v2.onrender.com`).
 5. Click **Create Web Service** to start the build and deploy.

@@ -278,10 +278,10 @@ Expected: master 的 CI 三個 job 全綠，`make watch-ci` exit 0。
 
 Dashboard 操作，沒有 code 改動。
 
-- [ ] **Step 1: Render Dashboard 建立 Web Service**：Region Singapore、Runtime Docker、Dockerfile Path `deployment/prod/Dockerfile`、Docker Build Context Directory 留空、Health Check Path `/health`、Instance Free、Auto-Deploy「After CI Checks Pass」branch `master`。
-- [ ] **Step 2: 設定環境變數**：只設 `ALLOWED_HOSTS` = Render 分配的網域（不含 `https://`）。**不設 `SECRET_KEY`。**
-- [ ] **Step 3: 設 GitHub repo variable `PROD_URL`**：GitHub repo → Settings → Secrets and variables → Actions → Variables → New repository variable，Name `PROD_URL`，Value `https://<Step 2 的網域>`（結尾不加 `/`）。
-- [ ] **Step 4: 首次部署與線上驗證 ★ checkpoint**：瀏覽器開 Render 網址，首頁出現；`<網址>/health` 顯示 `{"status": "ok"}`；搜尋「臺北 · 展覽 · 當月」有結果。指令層的線上驗證由 Task 18 的 `make monitor-prod PROD_URL=...` 負責。
+- [x] **Step 1: Render Dashboard 建立 Web Service**：Region Singapore、Runtime Docker、Dockerfile Path `deployment/prod/Dockerfile`、Docker Build Context Directory 留空、Health Check Path `/healthz`、Instance Free、Auto-Deploy「After CI Checks Pass」branch `master`。
+- [x] **Step 2: 設定環境變數**：只設 `ALLOWED_HOSTS` = Render 分配的網域（不含 `https://`）。**不設 `SECRET_KEY`。**
+- [x] **Step 3: 設 GitHub repo variable `PROD_URL`**：GitHub repo → Settings → Secrets and variables → Actions → Variables → New repository variable，Name `PROD_URL`，Value `https://<Step 2 的網域>`（結尾不加 `/`）。
+- [x] **Step 4: 首次部署與線上驗證 ★ checkpoint**：瀏覽器開 Render 網址，首頁出現；`<網址>/healthz` 顯示 `{"status": "ok"}`；搜尋「臺北 · 展覽 · 當月」有結果。指令層的線上驗證由 Task 18 的 `make monitor-prod PROD_URL=...` 負責。
 
 ---
 
@@ -310,7 +310,7 @@ PROD_URL ?= http://localhost:8791
 # Real search through MoC. Month uses Taiwan time: GitHub runners are UTC.
 # --max-time 90: Render free cold start takes about a minute.
 monitor-prod:
-	curl -sf --max-time 90 "$(PROD_URL)/api/v1/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=$$(TZ=Asia/Taipei date +%Y-%m)" | jq -e '.events | length > 0' > /dev/null
+	curl -sf --max-time 90 "$(PROD_URL)/api/v2/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=$$(TZ=Asia/Taipei date +%Y-%m)" | jq -e '.events | length > 0' > /dev/null
 	@echo "Monitor passed: $(PROD_URL)"
 ```
 
@@ -318,7 +318,7 @@ monitor-prod:
 
 - [ ] **Step 2: 本機驗證正向、反向、線上與時區**
 
-Run: `make run-prod && make smoke-prod && make monitor-prod`（`run-prod` 不等 server 起來，先用 `smoke-prod` 等 `/health`）
+Run: `make run-prod && make smoke-prod && make monitor-prod`（`run-prod` 不等 server 起來，先用 `smoke-prod` 等 `/healthz`）
 Expected: `Monitor passed: http://localhost:8791`
 
 Run: `make monitor-prod PROD_URL=http://localhost:1; echo "exit=$?"`

@@ -19,7 +19,7 @@ describe('api error classification', () => {
     mockFetch('{"events":[],"meta":{}}', 200);
     await searchEvents(form);
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
-      '/api/v1/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=2026-07'
+      '/api/v2/tw/events?category=6&location=%E8%87%BA%E5%8C%97&month=2026-07'
     );
     expect(vi.mocked(fetch).mock.calls[0][1]?.headers).toHaveProperty('X-Request-ID');
   });

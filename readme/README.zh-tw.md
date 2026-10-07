@@ -32,7 +32,7 @@ Culture Event Finder v2 是一個現代化的台灣藝文活動查詢平台。
 |                 (選擇縣市與類別，點擊搜尋)                     |
 +-------------------------------+--------------------------------+
                                 │
-                                │ 1. GET /api/v1/events/?...
+                                │ 1. GET /api/v2/events/?...
                                 ▼
 +----------------------------------------------------------------+
 |                     後端服務 (Django 5)                        |
@@ -136,9 +136,9 @@ make test-frontend
 
 | 方法 | 端點 | 說明 | 參數 / 回傳範例 |
 |---|---|---|---|
-| `GET` | `/health` | 服務探活與健康檢查 | 回傳 `{"status": "ok"}` 與 HTTP 200 |
-| `GET` | `/api/v1/countries` | 取得支援國家清單 | 回傳 `[{"code": "TW", "name": "Taiwan", "supported": true}]` |
-| `GET` | `/api/v1/events/` | 查詢並聚合活動清單 | 參數：`country`（如 `TW`）、`location`（如 `臺北`）、`category`（如 `1`）、`month`（格式 `YYYY-MM`） |
+| `GET` | `/healthz` | 服務探活與健康檢查 | 回傳 `{"status": "ok"}` 與 HTTP 200 |
+| `GET` | `/api/v2/countries` | 取得支援國家清單 | 回傳 `[{"code": "TW", "name": "Taiwan", "supported": true}]` |
+| `GET` | `/api/v2/events/` | 查詢並聚合活動清單 | 參數：`country`（如 `TW`）、`location`（如 `臺北`）、`category`（如 `1`）、`month`（格式 `YYYY-MM`） |
 
 ---
 
@@ -150,7 +150,7 @@ make test-frontend
    - **Region**：Singapore
    - **Environment**：Docker
    - **Dockerfile Path**：`deployment/prod/Dockerfile`
-   - **Health Check Path**：`/health`
+   - **Health Check Path**：`/healthz`
 4. 設定環境變數：
    - `ALLOWED_HOSTS`：填入 Render 分配的域名（例如 `culture-event-finder-v2.onrender.com`）。
 5. 點擊 **Create Web Service** 開始建置與部署。

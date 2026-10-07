@@ -10,8 +10,8 @@ def root_view(request):
             "service": "culture-event-finder-backend",
             "status": "ok",
             "endpoints": {
-                "health": "/health",
-                "api": "/api/v1/",
+                "health": "/healthz",
+                "api": "/api/v2/",
             },
             "frontend": "http://localhost:8790",
         }
@@ -29,8 +29,8 @@ def spa_catchall(request, path=""):
 
 
 urlpatterns = [
-    path("health", include("health.urls")),
-    path("health/", include("health.urls")),
-    path("api/v1/", include("events.urls")),
+    path("healthz", include("health.urls")),
+    path("healthz/", include("health.urls")),
+    path("api/v2/", include("events.urls")),
     re_path(r"^(?P<path>.*)$", spa_catchall, name="spa_catchall"),
 ]
