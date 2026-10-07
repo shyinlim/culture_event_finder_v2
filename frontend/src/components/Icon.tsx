@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 export type IconName =
   | 'search' | 'info' | 'moon' | 'sun' | 'calendar' | 'pin' | 'ticket' | 'refresh'
-  | 'music' | 'tent' | 'masks' | 'frame';
+  | 'music' | 'tent' | 'masks' | 'frame' | 'arrow-up';
 
 const SHAPES: Record<IconName, ReactNode> = {
   search: <><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>,
@@ -17,6 +17,7 @@ const SHAPES: Record<IconName, ReactNode> = {
   tent: <><path d="M19 20L12 4 5 20" /><path d="M12 15L9 20h6z" /></>,
   masks: <><path d="M4 10c0-4 4-8 8-8s8 4 8 8c0 5-4 10-8 10-4 0-8-5-8-10z" /><path d="M9 9h.01M15 9h.01M12 14c-1 0-2 .5-2 1h4c0-.5-1-1-2-1z" /></>,
   frame: <><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><path d="M3 9h18M9 21V9" /></>,
+  'arrow-up': <path d="M12 19V5M5 12l7-7 7 7" />,
 };
 
 // Purely decorative icon: button text or aria-label provides accessible names for screen readers.

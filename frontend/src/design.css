@@ -102,6 +102,14 @@
     -webkit-backdrop-filter: blur(36px) saturate(150%) brightness(1.02);
     box-shadow: 0 40px 90px -25px rgba(15,23,42,0.1);
   }
+  .glass.sticky,
+  .sticky.glass {
+    position: sticky;
+  }
+  .glass.fixed,
+  .fixed.glass {
+    position: fixed;
+  }
   /* Glossy diagonal sheen reflection on glass surface */
   .glass::after {
     content: "";

@@ -31,6 +31,7 @@ function MainApp() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [searched, setSearched] = useState<Form | null>(null);
   const [modalEvent, setModalEvent] = useState<EventItem | null>(null);
+  const [showTopBtn, setShowTopBtn] = useState(false);
   const searchCtrl = useRef<AbortController | null>(null);
 
   const country = countries.find((c) => c.code === form?.country);
@@ -106,6 +107,12 @@ function MainApp() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
+  useEffect(() => {
+    const onScroll = () => setShowTopBtn(window.scrollY > 300);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   // Summary line shows applied query filters and count.
   const summary = searched && country
     ? t('result_count', {
@@ -138,7 +145,7 @@ function MainApp() {
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 flex gap-4 text-[var(--text)]">
       {/* Desktop: left floating icon rail */}
-      <aside className="glass hidden sm:flex flex-col items-center gap-3 rounded-full px-2.5 py-5 h-fit sticky top-6">
+      <aside className="glass hidden sm:flex flex-col items-center gap-3 rounded-full px-2.5 py-5 h-fit sticky top-6 z-30 self-start">
         {navButton('search', 'search', 'h-11 w-11')}
         {navButton('about', 'info', 'h-11 w-11')}
         <div className="w-6 h-px bg-[var(--panel-border-dim)] my-2" />
@@ -148,7 +155,7 @@ function MainApp() {
 
       <div className="flex-1 min-w-0">
         {/* Mobile: top nav bar with language switch */}
-        <nav className="glass sm:hidden flex items-center justify-end gap-2 rounded-3xl px-4 py-3 mb-5">
+        <nav className="glass sm:hidden flex items-center justify-end gap-2 rounded-3xl px-4 py-3 mb-5 sticky top-3 z-30">
           {navButton('search', 'search', 'h-9 w-9')}
           {navButton('about', 'info', 'h-9 w-9')}
           {themeButton('h-9 w-9')}
@@ -206,6 +213,16 @@ function MainApp() {
         )}
         <ShowTimesModal event={modalEvent} onClose={() => setModalEvent(null)} />
       </div>
+      {showTopBtn && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label={t('back_to_top')}
+          className="fixed bottom-6 right-6 z-40 glass w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 shadow-xl hover:bg-[var(--surface-2)]"
+        >
+          <Icon name="arrow-up" />
+        </button>
+      )}
     </div>
   );
 }

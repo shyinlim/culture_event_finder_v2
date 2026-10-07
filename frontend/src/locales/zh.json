@@ -1,5 +1,5 @@
 {
-  "app_title": "Culture Event Finder",
+  "app_title": "藝文活動資訊平台",
   "nav_search": "搜尋",
   "nav_about": "關於",
   "theme_toggle": "切換深淺色主題",
@@ -27,11 +27,12 @@
   "result_count": "{{place}} · {{category}} · {{ym}} 共 {{count}} 筆",
   "on_sales": "🔥 熱賣中",
   "google_search": "Google 搜尋",
-  "about_title": "關於 Culture Event Finder",
+  "about_title": "關於 藝文活動資訊平台",
   "about_desc": "整合台灣文化部公開資料的活動搜尋工具。以 country provider 架構設計，未來可擴充其他國家的公開資料源。",
   "about_author": "作者",
   "total_shows": "共 {{count}} 場次",
   "show_count_badge": "{{count}} 場次 ▾",
   "modal_booking_hint": "購票時請依場次預約",
-  "modal_close": "關閉"
+  "modal_close": "關閉",
+  "back_to_top": "回到頂部"
 }
