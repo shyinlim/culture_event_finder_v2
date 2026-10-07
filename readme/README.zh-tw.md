@@ -12,6 +12,10 @@ Culture Event Finder V2 是一個現代化的藝文活動查詢平台。
 後端使用 Django 5，前端使用 Vite 搭配 React。
 透過多階段 Dockerfile，將前後端打包成單一容器，方便快速部署。
 
+| 目前支援國家 |
+|---|
+| 台灣 🇹🇼 |
+
 ![frontend.png](frontend.png)
 
 ---
